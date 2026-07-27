@@ -88,6 +88,190 @@ select {
   scrollbar-gutter: stable;
 }
 
+.still-shell {
+  position: relative;
+  isolation: isolate;
+}
+
+.still-shell::before {
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  content: "";
+  background:
+    linear-gradient(120deg, rgba(216, 166, 87, 0.025), transparent 38%),
+    radial-gradient(circle at 72% 18%, rgba(102, 122, 78, 0.045), transparent 34%);
+}
+
+.still-ambient {
+  pointer-events: none;
+  position: absolute;
+  z-index: 0;
+  border-radius: 999px;
+  filter: blur(70px);
+  will-change: transform;
+}
+
+.still-ambient-one {
+  right: 8%;
+  top: -12rem;
+  height: 30rem;
+  width: 30rem;
+  background: rgba(216, 166, 87, 0.055);
+  animation: ambient-drift-one 22s ease-in-out infinite alternate;
+}
+
+.still-ambient-two {
+  bottom: -15rem;
+  left: 26%;
+  height: 34rem;
+  width: 34rem;
+  background: rgba(92, 116, 79, 0.05);
+  animation: ambient-drift-two 28s ease-in-out infinite alternate;
+}
+
+.thought-editor {
+  transform-origin: center;
+  transition:
+    background-color 500ms ease,
+    box-shadow 500ms ease,
+    opacity 240ms ease,
+    transform 240ms ease,
+    filter 240ms ease;
+}
+
+.thought-editor.is-focus-mode {
+  box-shadow: inset 0 0 140px rgba(216, 166, 87, 0.025);
+}
+
+.thought-editor.is-focus-mode article {
+  max-width: 56rem;
+  transition: max-width 500ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.editor-ambient {
+  pointer-events: none;
+  position: absolute;
+  right: -12rem;
+  top: 12%;
+  height: 28rem;
+  width: 28rem;
+  border-radius: 999px;
+  background: radial-gradient(
+    circle,
+    rgba(216, 166, 87, 0.042) 0,
+    rgba(216, 166, 87, 0) 70%
+  );
+  animation: editor-breathe 12s ease-in-out infinite alternate;
+}
+
+.animate-thought-card {
+  animation: thought-card-enter 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: calc(var(--card-index, 0) * 38ms);
+}
+
+.pin-dot {
+  box-shadow: 0 0 0 0 rgba(216, 166, 87, 0.35);
+  animation: pin-dot-pulse 2.8s ease-out infinite;
+}
+
+.pin-bloom {
+  animation: pin-bloom 520ms cubic-bezier(0.2, 0.9, 0.25, 1.3);
+}
+
+.save-indicator {
+  transition: color 200ms ease;
+}
+
+.save-indicator svg,
+.save-indicator span {
+  transition:
+    color 200ms ease,
+    opacity 200ms ease,
+    transform 200ms ease;
+}
+
+.save-saving svg {
+  animation: save-breathe 900ms ease-in-out infinite alternate;
+}
+
+.save-saved svg {
+  color: var(--accent);
+  animation: save-arrive 360ms cubic-bezier(0.2, 0.9, 0.25, 1.35);
+}
+
+.review-chip {
+  display: inline-flex;
+  min-height: 1.75rem;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 0.55rem;
+  background: color-mix(in srgb, var(--surface) 76%, transparent);
+  padding: 0.25rem 0.55rem;
+  color: var(--muted-foreground);
+  transition:
+    color 180ms ease,
+    border-color 180ms ease,
+    background-color 180ms ease,
+    transform 180ms ease;
+}
+
+.review-chip:hover {
+  transform: translateY(-1px);
+  border-color: var(--border-strong);
+  background: var(--surface-hover);
+  color: var(--foreground);
+}
+
+.review-chip:active {
+  transform: translateY(0) scale(0.97);
+}
+
+.word-milestone {
+  background: linear-gradient(
+    90deg,
+    var(--muted-foreground),
+    var(--accent),
+    var(--muted-foreground)
+  );
+  background-size: 200% 100%;
+  background-clip: text;
+  color: transparent;
+  animation: word-shimmer 4s linear infinite;
+}
+
+.thought-leaving-archive {
+  animation: thought-fold-away 240ms ease-in both;
+}
+
+.thought-leaving-delete {
+  animation: thought-dissolve 240ms ease-in both;
+}
+
+.command-backdrop {
+  animation: command-backdrop-enter 180ms ease-out both;
+}
+
+.command-panel {
+  transform-origin: 50% 0;
+  animation: command-panel-enter 360ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.command-item {
+  animation: command-item-enter 260ms ease-out both;
+}
+
+.command-item:hover {
+  background: var(--surface-hover);
+  transform: translateX(3px);
+}
+
+.command-item:focus-visible {
+  background: var(--surface-hover);
+  outline: 1px solid var(--border-strong);
+}
+
 .auth-orb {
   pointer-events: none;
   position: absolute;
@@ -106,6 +290,7 @@ select {
     rgba(216, 166, 87, 0.11) 0,
     rgba(216, 166, 87, 0) 72%
   );
+  animation: auth-orb-float 14s ease-in-out infinite alternate;
 }
 
 .auth-orb-two {
@@ -118,6 +303,149 @@ select {
     rgba(111, 126, 83, 0.11) 0,
     rgba(111, 126, 83, 0) 70%
   );
+  animation: auth-orb-float 18s ease-in-out -5s infinite alternate-reverse;
+}
+
+@keyframes ambient-drift-one {
+  from {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  to {
+    transform: translate3d(-5rem, 6rem, 0) scale(1.14);
+  }
+}
+
+@keyframes ambient-drift-two {
+  from {
+    transform: translate3d(0, 0, 0) scale(0.92);
+  }
+  to {
+    transform: translate3d(7rem, -4rem, 0) scale(1.08);
+  }
+}
+
+@keyframes editor-breathe {
+  from {
+    transform: scale(0.92) translate3d(0, 0, 0);
+    opacity: 0.45;
+  }
+  to {
+    transform: scale(1.08) translate3d(-3rem, 2rem, 0);
+    opacity: 0.8;
+  }
+}
+
+@keyframes thought-card-enter {
+  from {
+    transform: translateY(10px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes pin-dot-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(216, 166, 87, 0.34);
+  }
+  60%,
+  100% {
+    box-shadow: 0 0 0 7px rgba(216, 166, 87, 0);
+  }
+}
+
+@keyframes pin-bloom {
+  0% {
+    transform: scale(0.82) rotate(-8deg);
+  }
+  55% {
+    transform: scale(1.13) rotate(4deg);
+    background: rgba(216, 166, 87, 0.13);
+  }
+  100% {
+    transform: scale(1) rotate(0);
+  }
+}
+
+@keyframes save-breathe {
+  from {
+    transform: translateY(0);
+    opacity: 0.55;
+  }
+  to {
+    transform: translateY(-1px);
+    opacity: 1;
+  }
+}
+
+@keyframes save-arrive {
+  from {
+    transform: scale(0.45) rotate(-20deg);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1) rotate(0);
+    opacity: 1;
+  }
+}
+
+@keyframes word-shimmer {
+  to {
+    background-position: -200% 0;
+  }
+}
+
+@keyframes thought-fold-away {
+  to {
+    transform: perspective(1000px) rotateX(-4deg) translateY(16px) scale(0.985);
+    filter: blur(3px);
+    opacity: 0;
+  }
+}
+
+@keyframes thought-dissolve {
+  to {
+    transform: scale(0.98);
+    filter: blur(7px);
+    opacity: 0;
+  }
+}
+
+@keyframes command-backdrop-enter {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes command-panel-enter {
+  from {
+    transform: translateY(-14px) scale(0.97);
+    filter: blur(4px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0) scale(1);
+    filter: blur(0);
+    opacity: 1;
+  }
+}
+
+@keyframes command-item-enter {
+  from {
+    transform: translateY(5px);
+    opacity: 0;
+  }
+}
+
+@keyframes auth-orb-float {
+  from {
+    transform: translate3d(0, 0, 0) scale(0.96);
+  }
+  to {
+    transform: translate3d(2.5rem, -1.5rem, 0) scale(1.06);
+  }
 }
 
 @media (max-width: 1023px) {

@@ -1,6 +1,7 @@
 "use client";
 
 import { Search, SquarePen } from "lucide-react";
+import type { CSSProperties } from "react";
 
 import { Button } from "@/components/ui/button";
 import type { Thought } from "@/lib/database.types";
@@ -66,7 +67,7 @@ export function ThoughtList({
       <div className="min-h-0 flex-1 overflow-y-auto p-2.5">
         {thoughts.length ? (
           <div className="space-y-1">
-            {thoughts.map((thought) => {
+            {thoughts.map((thought, index) => {
               const displayTitle = thought.title?.trim() || deriveThoughtTitle(thought.body);
               const preview = thought.body
                 .replace(/\s+/g, " ")
@@ -79,15 +80,20 @@ export function ThoughtList({
                   key={thought.id}
                   type="button"
                   onClick={() => onSelect(thought.id)}
+                  style={
+                    {
+                      "--card-index": Math.min(index, 8),
+                    } as CSSProperties
+                  }
                   className={cn(
-                    "group relative w-full rounded-2xl border px-4 py-3.5 text-left transition",
+                    "animate-thought-card group relative w-full rounded-2xl border px-4 py-3.5 text-left transition-[background,border-color,box-shadow,transform,opacity]",
                     activeId === thought.id
-                      ? "border-[var(--border-strong)] bg-[var(--surface-selected)] shadow-[0_8px_30px_rgba(0,0,0,0.12)]"
-                      : "border-transparent hover:border-[var(--border)] hover:bg-[var(--surface)]",
+                      ? "border-[var(--border-strong)] bg-[var(--surface-selected)] shadow-[0_12px_36px_rgba(0,0,0,0.18)]"
+                      : "border-transparent hover:-translate-y-0.5 hover:border-[var(--border)] hover:bg-[var(--surface)] hover:shadow-[0_12px_30px_rgba(0,0,0,0.12)]",
                   )}
                 >
                   {thought.is_pinned ? (
-                    <span className="absolute right-3 top-3 size-1.5 rounded-full bg-[var(--accent)]" />
+                    <span className="pin-dot absolute right-3 top-3 size-1.5 rounded-full bg-[var(--accent)]" />
                   ) : null}
                   <div className="pr-4 text-[15px] font-medium leading-5 tracking-[-0.015em]">
                     {displayTitle}

@@ -4,6 +4,7 @@ import {
   Archive,
   BookOpenText,
   Clock3,
+  Command as CommandIcon,
   Feather,
   Inbox,
   LoaderCircle,
@@ -23,6 +24,10 @@ import {
 } from "react";
 
 import { AuthScreen } from "@/components/auth-screen";
+import {
+  CommandPalette,
+  type PaletteCommand,
+} from "@/components/command-palette";
 import { ThoughtEditor } from "@/components/thought-editor";
 import { ThoughtList } from "@/components/thought-list";
 import { Button } from "@/components/ui/button";
@@ -74,6 +79,8 @@ export function ThoughtApp() {
   const [view, setView] = useState<View>("all");
   const [search, setSearch] = useState("");
   const [showMobileEditor, setShowMobileEditor] = useState(false);
+  const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
+  const [isFocusMode, setIsFocusMode] = useState(false);
   const [saveState, setSaveState] = useState<SaveState>("idle");
   const [pendingThought, setPendingThought] = useState<Thought | null>(null);
   const [reviewClock] = useState(() => Date.now());
@@ -234,6 +241,32 @@ export function ThoughtApp() {
     return () => window.removeEventListener("online", retryPending);
   }, []);
 
+  const closeCommandPalette = useCallback(
+    () => setIsCommandPaletteOpen(false),
+    [],
+  );
+
+  useEffect(() => {
+    function handleKeyboardShortcuts(event: KeyboardEvent) {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setIsCommandPaletteOpen((open) => !open);
+        return;
+      }
+
+      if (
+        event.key === "Escape" &&
+        isFocusMode &&
+        !isCommandPaletteOpen
+      ) {
+        setIsFocusMode(false);
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyboardShortcuts);
+    return () => window.removeEventListener("keydown", handleKeyboardShortcuts);
+  }, [isCommandPaletteOpen, isFocusMode]);
+
   const activeThought =
     thoughts.find((thought) => thought.id === activeId) ?? null;
 
@@ -321,6 +354,7 @@ export function ThoughtApp() {
     setThoughts(remaining);
     setActiveId(remaining[0]?.id ?? null);
     setShowMobileEditor(false);
+    if (!remaining.length) setIsFocusMode(false);
 
     if (pendingRef.current?.id === deletingId) {
       pendingRef.current = null;
@@ -353,7 +387,100 @@ export function ThoughtApp() {
     setView(nextView);
     setSearch("");
     setShowMobileEditor(false);
+    setIsFocusMode(false);
   }
+
+  const paletteCommands: PaletteCommand[] = [
+    {
+      id: "new-thought",
+      label: "New thought",
+      description: "Open a fresh page and start writing",
+      keywords: "create add capture",
+      icon: Plus,
+      action: createThought,
+    },
+    {
+      id: "focus-mode",
+      label: isFocusMode ? "Exit focus mode" : "Enter focus mode",
+      description: isFocusMode
+        ? "Bring the thought list and navigation back"
+        : "Hide everything except the active thought",
+      keywords: "writing distraction free fullscreen",
+      shortcut: "Esc",
+      icon: Feather,
+      disabled: !activeThought,
+      action: () => setIsFocusMode((current) => !current),
+    },
+    {
+      id: "toggle-pin",
+      label: activeThought?.is_pinned
+        ? "Unpin active thought"
+        : "Pin active thought",
+      description: "Keep this thought close at hand",
+      keywords: "favorite important",
+      icon: Pin,
+      disabled: !activeThought,
+      action: () =>
+        patchActiveThought({ is_pinned: !activeThought?.is_pinned }),
+    },
+    {
+      id: "archive-thought",
+      label: "Archive active thought",
+      description: "Move this thought out of your working views",
+      keywords: "hide complete",
+      icon: Archive,
+      disabled: !activeThought || activeThought.status === "archived",
+      action: () => patchActiveThought({ status: "archived" }),
+    },
+    {
+      id: "view-all",
+      label: "Open all thoughts",
+      description: "Everything still in motion",
+      keywords: "view navigation",
+      icon: BookOpenText,
+      action: () => changeView("all"),
+    },
+    {
+      id: "view-inbox",
+      label: "Open inbox",
+      description: "New and unshaped thoughts",
+      keywords: "view navigation",
+      icon: Inbox,
+      action: () => changeView("inbox"),
+    },
+    {
+      id: "view-developing",
+      label: "Open developing",
+      description: "Ideas worth returning to",
+      keywords: "view navigation progress",
+      icon: Sparkles,
+      action: () => changeView("developing"),
+    },
+    {
+      id: "view-pinned",
+      label: "Open pinned thoughts",
+      description: "The ideas you are keeping close",
+      keywords: "view navigation favorites",
+      icon: Pin,
+      action: () => changeView("pinned"),
+    },
+    {
+      id: "view-review",
+      label: "Open today’s resurfaced thoughts",
+      description: "Writing that is ready to return",
+      keywords: "view navigation review scheduled",
+      icon: Clock3,
+      action: () => changeView("review"),
+    },
+    {
+      id: "view-archive",
+      label: "Open archive",
+      description: "Quietly kept, out of the way",
+      keywords: "view navigation old",
+      icon: Archive,
+      action: () => changeView("archived"),
+    },
+  ];
 
   if (isAuthLoading) {
     return (
@@ -371,9 +498,23 @@ export function ThoughtApp() {
   const details = viewDetails[view];
 
   return (
-    <main className="h-dvh overflow-hidden bg-[var(--background)] text-[var(--foreground)]">
-      <div className="grid h-full lg:grid-cols-[244px_340px_minmax(0,1fr)]">
-        <aside className="hidden min-h-0 flex-col border-r border-[var(--border)] bg-[var(--sidebar)] p-4 lg:flex">
+    <main className="still-shell h-dvh overflow-hidden bg-[var(--background)] text-[var(--foreground)]">
+      <div className="still-ambient still-ambient-one" aria-hidden="true" />
+      <div className="still-ambient still-ambient-two" aria-hidden="true" />
+      <div
+        className={cn(
+          "relative z-10 grid h-full transition-[grid-template-columns] duration-500",
+          isFocusMode
+            ? "lg:grid-cols-[minmax(0,1fr)]"
+            : "lg:grid-cols-[244px_340px_minmax(0,1fr)]",
+        )}
+      >
+        <aside
+          className={cn(
+            "hidden min-h-0 flex-col border-r border-[var(--border)] bg-[color-mix(in_srgb,var(--sidebar)_93%,transparent)] p-4 backdrop-blur-xl lg:flex",
+            isFocusMode && "lg:hidden",
+          )}
+        >
           <div className="flex h-14 items-center gap-3 px-2">
             <div className="grid size-9 place-items-center rounded-xl bg-[var(--accent)] text-[var(--accent-foreground)]">
               <Feather className="size-4.5" />
@@ -387,6 +528,17 @@ export function ThoughtApp() {
           <Button className="mt-5 w-full justify-start" onClick={createThought}>
             <Plus className="size-4" />
             New thought
+          </Button>
+          <Button
+            variant="secondary"
+            className="mt-2 w-full justify-start"
+            onClick={() => setIsCommandPaletteOpen(true)}
+          >
+            <CommandIcon className="size-4" />
+            Quick actions
+            <kbd className="ml-auto rounded-md border border-[var(--border)] px-1.5 py-0.5 font-mono text-[9px] text-[var(--muted)]">
+              ⌘K
+            </kbd>
           </Button>
 
           <nav className="mt-6 space-y-1" aria-label="Thought views">
@@ -447,13 +599,24 @@ export function ThoughtApp() {
             </div>
             <span className="text-sm font-semibold">Still</span>
           </div>
-          <button
-            type="button"
-            onClick={signOut}
-            className="max-w-40 truncate text-xs text-[var(--muted)]"
-          >
-            {user.email}
-          </button>
+          <div className="flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setIsCommandPaletteOpen(true)}
+              aria-label="Open quick actions"
+              className="size-9"
+            >
+              <CommandIcon className="size-4" />
+            </Button>
+            <button
+              type="button"
+              onClick={signOut}
+              className="max-w-32 truncate text-xs text-[var(--muted)]"
+            >
+              {user.email}
+            </button>
+          </div>
         </header>
 
         <ThoughtList
@@ -468,6 +631,7 @@ export function ThoughtApp() {
           className={cn(
             "pt-16 pb-16 lg:flex lg:pt-0 lg:pb-0",
             showMobileEditor ? "hidden" : "flex",
+            isFocusMode && "lg:hidden",
           )}
         />
 
@@ -488,6 +652,8 @@ export function ThoughtApp() {
               onPatch={patchActiveThought}
               onDelete={deleteActiveThought}
               onBack={() => setShowMobileEditor(false)}
+              isFocusMode={isFocusMode}
+              onToggleFocusMode={() => setIsFocusMode((current) => !current)}
             />
           ) : (
             <EmptyEditor onNew={createThought} />
@@ -542,6 +708,11 @@ export function ThoughtApp() {
           />
         </nav>
       </div>
+      <CommandPalette
+        commands={paletteCommands}
+        isOpen={isCommandPaletteOpen}
+        onClose={closeCommandPalette}
+      />
     </main>
   );
 }

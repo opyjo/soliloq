@@ -8,8 +8,10 @@ import {
   Check,
   Cloud,
   CloudOff,
+  Maximize2,
   Mic,
   MicOff,
+  Minimize2,
   MoreHorizontal,
   Pin,
   PinOff,
@@ -57,6 +59,8 @@ type ThoughtEditorProps = {
   onPatch: (patch: Partial<Thought>) => void;
   onDelete: () => void;
   onBack: () => void;
+  isFocusMode: boolean;
+  onToggleFocusMode: () => void;
 };
 
 const statusLabels: Record<ThoughtStatus, string> = {
@@ -72,14 +76,25 @@ export function ThoughtEditor({
   onPatch,
   onDelete,
   onBack,
+  isFocusMode,
+  onToggleFocusMode,
 }: ThoughtEditorProps) {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isDictating, setIsDictating] = useState(false);
+  const [leavingAction, setLeavingAction] = useState<"archive" | "delete" | null>(
+    null,
+  );
   const recognitionRef = useRef<BrowserSpeechRecognition | null>(null);
   const bodyRef = useRef<HTMLTextAreaElement>(null);
+  const leavingTimeoutRef = useRef<number | null>(null);
 
   useEffect(() => {
-    return () => recognitionRef.current?.stop();
+    return () => {
+      recognitionRef.current?.stop();
+      if (leavingTimeoutRef.current) {
+        window.clearTimeout(leavingTimeoutRef.current);
+      }
+    };
   }, []);
 
   useEffect(() => {
@@ -127,7 +142,24 @@ export function ThoughtEditor({
 
   function handleDelete() {
     if (!window.confirm("Delete this thought permanently?")) return;
-    onDelete();
+    setLeavingAction("delete");
+    leavingTimeoutRef.current = window.setTimeout(onDelete, 240);
+  }
+
+  function handleArchive() {
+    setIsMenuOpen(false);
+    setLeavingAction("archive");
+    leavingTimeoutRef.current = window.setTimeout(() => {
+      onPatch({ status: "archived" });
+      setLeavingAction(null);
+    }, 240);
+  }
+
+  function reviewOn(dayOffset: number) {
+    const date = new Date();
+    date.setDate(date.getDate() + dayOffset);
+    date.setHours(9, 0, 0, 0);
+    onPatch({ review_at: date.toISOString() });
   }
 
   const wordCount = thought.body.trim()
@@ -135,7 +167,14 @@ export function ThoughtEditor({
     : 0;
 
   return (
-    <section className="relative min-w-0 flex-1 bg-[var(--editor)]">
+    <section
+      className={cn(
+        "thought-editor relative min-w-0 flex-1 overflow-hidden bg-[var(--editor)]",
+        isFocusMode && "is-focus-mode",
+        leavingAction && `thought-leaving-${leavingAction}`,
+      )}
+    >
+      <div className="editor-ambient" aria-hidden="true" />
       <header className="flex h-16 items-center justify-between border-b border-[var(--border)] px-4 sm:px-6 lg:h-18 lg:px-8">
         <div className="flex items-center gap-2">
           <Button
@@ -170,6 +209,19 @@ export function ThoughtEditor({
           <Button
             variant="ghost"
             size="icon"
+            onClick={onToggleFocusMode}
+            aria-label={isFocusMode ? "Exit focus mode" : "Enter focus mode"}
+          >
+            {isFocusMode ? (
+              <Minimize2 className="size-4 text-[var(--accent)]" />
+            ) : (
+              <Maximize2 className="size-4" />
+            )}
+          </Button>
+
+          <Button
+            variant="ghost"
+            size="icon"
             onClick={toggleDictation}
             aria-label={isDictating ? "Stop dictation" : "Start dictation"}
             className={cn(
@@ -184,6 +236,7 @@ export function ThoughtEditor({
             size="icon"
             onClick={() => onPatch({ is_pinned: !thought.is_pinned })}
             aria-label={thought.is_pinned ? "Unpin thought" : "Pin thought"}
+            className={cn(thought.is_pinned && "pin-bloom")}
           >
             {thought.is_pinned ? (
               <PinOff className="size-4 text-[var(--accent)]" />
@@ -207,10 +260,7 @@ export function ThoughtEditor({
               <div className="absolute right-0 top-11 z-30 w-44 rounded-xl border border-[var(--border)] bg-[var(--popover)] p-1.5 shadow-2xl">
                 <button
                   type="button"
-                  onClick={() => {
-                    onPatch({ status: "archived" });
-                    setIsMenuOpen(false);
-                  }}
+                  onClick={handleArchive}
                   className="flex h-9 w-full items-center gap-2 rounded-lg px-3 text-left text-xs text-[var(--muted-foreground)] hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
                 >
                   <Archive className="size-3.5" />
@@ -249,9 +299,11 @@ export function ThoughtEditor({
             aria-label="Thought"
           />
 
-          <footer className="mt-12 flex flex-wrap items-center justify-between gap-4 border-t border-[var(--border)] pt-5 text-[11px] text-[var(--muted)]">
+          <footer className="mt-12 flex flex-wrap items-center justify-between gap-5 border-t border-[var(--border)] pt-5 text-[11px] text-[var(--muted)]">
             <div className="flex items-center gap-4">
-              <span>{wordCount} {wordCount === 1 ? "word" : "words"}</span>
+              <span className={cn(wordCount >= 100 && "word-milestone")}>
+                {wordCount} {wordCount === 1 ? "word" : "words"}
+              </span>
               <span>
                 Created{" "}
                 {new Intl.DateTimeFormat("en", {
@@ -262,23 +314,49 @@ export function ThoughtEditor({
               </span>
             </div>
 
-            <label className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <CalendarClock className="size-3.5" />
-              <span>Bring back</span>
-              <input
-                type="date"
-                value={thought.review_at?.slice(0, 10) ?? ""}
-                onChange={(event) =>
-                  onPatch({
-                    review_at: event.target.value
-                      ? new Date(`${event.target.value}T09:00:00`).toISOString()
-                      : null,
-                  })
-                }
-                className="rounded-md bg-transparent text-[var(--muted-foreground)] outline-none"
-                aria-label="Review date"
-              />
-            </label>
+              <span className="mr-1">Bring back</span>
+              <button
+                type="button"
+                onClick={() => reviewOn(1)}
+                className="review-chip"
+              >
+                Tomorrow
+              </button>
+              <button
+                type="button"
+                onClick={() => reviewOn(7)}
+                className="review-chip"
+              >
+                Next week
+              </button>
+              <label className="review-chip cursor-pointer">
+                <span>Choose date</span>
+                <input
+                  type="date"
+                  value={thought.review_at?.slice(0, 10) ?? ""}
+                  onChange={(event) =>
+                    onPatch({
+                      review_at: event.target.value
+                        ? new Date(`${event.target.value}T09:00:00`).toISOString()
+                        : null,
+                    })
+                  }
+                  className="sr-only"
+                  aria-label="Review date"
+                />
+              </label>
+              {thought.review_at ? (
+                <button
+                  type="button"
+                  onClick={() => onPatch({ review_at: null })}
+                  className="review-chip text-[var(--danger)]"
+                >
+                  Clear
+                </button>
+              ) : null}
+            </div>
           </footer>
         </article>
       </div>
@@ -299,8 +377,10 @@ function SaveIndicator({ state }: { state: SaveState }) {
 
   return (
     <div
+      aria-live="polite"
       className={cn(
-        "mr-1 hidden items-center gap-1.5 text-[11px] sm:flex",
+        "save-indicator mr-1 hidden items-center gap-1.5 text-[11px] sm:flex",
+        `save-${state}`,
         state === "error" ? "text-[var(--danger)]" : "text-[var(--muted)]",
       )}
     >
