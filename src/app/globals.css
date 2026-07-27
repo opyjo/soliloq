@@ -1,0 +1,138 @@
+@import "tailwindcss";
+
+:root {
+  --background: #10120f;
+  --foreground: #f0eadf;
+  --writing: #dcd5c8;
+  --muted-foreground: #aaa69c;
+  --muted: #77776f;
+  --placeholder: #5f6059;
+  --surface: #191b17;
+  --surface-hover: #20231d;
+  --surface-selected: #25271f;
+  --panel: #141612;
+  --sidebar: #11130f;
+  --editor: #171914;
+  --popover: #1c1f19;
+  --input: #171914;
+  --border: rgba(240, 234, 223, 0.09);
+  --border-strong: rgba(216, 166, 87, 0.32);
+  --accent: #d8a657;
+  --accent-hover: #e2b46a;
+  --accent-foreground: #1d160b;
+  --danger: #e78a7f;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: "Geist", "Geist Fallback", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Geist Mono", "Geist Mono Fallback", ui-monospace, monospace;
+}
+
+* {
+  border-color: var(--border);
+}
+
+html {
+  background: var(--background);
+}
+
+body {
+  margin: 0;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: "Geist", "Geist Fallback", ui-sans-serif, system-ui, sans-serif;
+  text-rendering: optimizeLegibility;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+button,
+select {
+  -webkit-tap-highlight-color: transparent;
+}
+
+::selection {
+  background: rgba(216, 166, 87, 0.28);
+  color: var(--foreground);
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: rgba(240, 234, 223, 0.13);
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(240, 234, 223, 0.2);
+  background-clip: padding-box;
+}
+
+.editor-scroll {
+  scrollbar-gutter: stable;
+}
+
+.auth-orb {
+  pointer-events: none;
+  position: absolute;
+  border-radius: 999px;
+  filter: blur(1px);
+  opacity: 0.6;
+}
+
+.auth-orb-one {
+  left: -12rem;
+  top: 34%;
+  height: 24rem;
+  width: 24rem;
+  background: radial-gradient(
+    circle,
+    rgba(216, 166, 87, 0.11) 0,
+    rgba(216, 166, 87, 0) 72%
+  );
+}
+
+.auth-orb-two {
+  right: -10rem;
+  top: -10rem;
+  height: 30rem;
+  width: 30rem;
+  background: radial-gradient(
+    circle,
+    rgba(111, 126, 83, 0.11) 0,
+    rgba(111, 126, 83, 0) 70%
+  );
+}
+
+@media (max-width: 1023px) {
+  .editor-scroll {
+    height: calc(100dvh - 8rem);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
