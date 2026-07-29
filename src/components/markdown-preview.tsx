@@ -60,7 +60,7 @@ export function MarkdownPreview({
       elements.push(
         <h1
           key={idx}
-          className="mb-4 mt-6 text-2xl font-bold tracking-tight text-[var(--foreground)] sm:text-3xl"
+          className="mb-2 mt-4 text-base font-bold tracking-tight text-[var(--foreground)] sm:text-lg"
         >
           {parseInlineText(line.slice(2), idx, onWikiLinkClick, onTagClick)}
         </h1>
@@ -71,7 +71,7 @@ export function MarkdownPreview({
       elements.push(
         <h2
           key={idx}
-          className="mb-3 mt-5 text-xl font-semibold tracking-tight text-[var(--foreground)] sm:text-2xl"
+          className="mb-2 mt-3 text-sm font-semibold tracking-tight text-[var(--foreground)] sm:text-base"
         >
           {parseInlineText(line.slice(3), idx, onWikiLinkClick, onTagClick)}
         </h2>
@@ -82,7 +82,7 @@ export function MarkdownPreview({
       elements.push(
         <h3
           key={idx}
-          className="mb-2 mt-4 text-lg font-semibold text-[var(--foreground)] sm:text-xl"
+          className="mb-1 mt-2 text-xs font-semibold text-[var(--foreground)] sm:text-sm"
         >
           {parseInlineText(line.slice(4), idx, onWikiLinkClick, onTagClick)}
         </h3>
@@ -95,7 +95,7 @@ export function MarkdownPreview({
       elements.push(
         <blockquote
           key={idx}
-          className="my-3 border-l-2 border-[var(--accent)] pl-4 italic text-[var(--muted-foreground)]"
+          className="my-2 border-l-2 border-[var(--accent)] pl-3 italic text-[var(--muted-foreground)] text-xs sm:text-[13px]"
         >
           {parseInlineText(line.slice(2), idx, onWikiLinkClick, onTagClick)}
         </blockquote>
@@ -109,7 +109,7 @@ export function MarkdownPreview({
       elements.push(
         <li
           key={idx}
-          className="ml-5 list-disc my-1 text-[var(--writing)]"
+          className="ml-4 list-disc my-0.5 text-[var(--writing)]"
         >
           {parseInlineText(itemText, idx, onWikiLinkClick, onTagClick)}
         </li>
@@ -119,20 +119,20 @@ export function MarkdownPreview({
 
     // Empty lines
     if (!line.trim()) {
-      elements.push(<div key={idx} className="h-4" />);
+      elements.push(<div key={idx} className="h-3" />);
       return;
     }
 
     // Normal Paragraph
     elements.push(
-      <p key={idx} className="my-2 leading-relaxed text-[var(--writing)]">
+      <p key={idx} className="my-1.5 leading-relaxed text-[var(--writing)]">
         {parseInlineText(line, idx, onWikiLinkClick, onTagClick)}
       </p>
     );
   });
 
   return (
-    <div className={cn("markdown-preview text-[17px] sm:text-[18px]", className)}>
+    <div className={cn("markdown-preview text-[13px] sm:text-[14px]", className)}>
       {elements}
     </div>
   );

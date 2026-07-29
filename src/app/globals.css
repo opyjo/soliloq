@@ -1,26 +1,26 @@
 @import "tailwindcss";
 
 :root {
-  --background: #10120f;
-  --foreground: #f0eadf;
-  --writing: #dcd5c8;
-  --muted-foreground: #aaa69c;
-  --muted: #77776f;
-  --placeholder: #5f6059;
-  --surface: #191b17;
-  --surface-hover: #20231d;
-  --surface-selected: #25271f;
-  --panel: #141612;
-  --sidebar: #11130f;
-  --editor: #171914;
-  --popover: #1c1f19;
-  --input: #171914;
-  --border: rgba(240, 234, 223, 0.09);
-  --border-strong: rgba(216, 166, 87, 0.32);
-  --accent: #d8a657;
-  --accent-hover: #e2b46a;
-  --accent-foreground: #1d160b;
-  --danger: #e78a7f;
+  --background: #08090c;
+  --foreground: #e4e4e7;
+  --writing: #d4d4d8;
+  --muted-foreground: #a1a1aa;
+  --muted: #71717a;
+  --placeholder: #52525b;
+  --surface: #101216;
+  --surface-hover: #171920;
+  --surface-selected: #1f222b;
+  --panel: #0d0e12;
+  --sidebar: #0a0b0e;
+  --editor: #08090c;
+  --popover: #12141a;
+  --input: #101216;
+  --border: rgba(255, 255, 255, 0.07);
+  --border-strong: rgba(129, 140, 248, 0.35);
+  --accent: #818cf8;
+  --accent-hover: #a5b4fc;
+  --accent-foreground: #08090c;
+  --danger: #f87171;
 }
 
 [data-theme="sepia"] {
@@ -130,12 +130,36 @@ html {
   background: var(--background);
 }
 
-body {
-  margin: 0;
-  background: var(--background);
-  color: var(--foreground);
-  font-family: "Geist", "Geist Fallback", ui-sans-serif, system-ui, sans-serif;
-  text-rendering: optimizeLegibility;
+.font-sans-writing {
+  font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+}
+
+.font-serif-writing {
+  font-family: Georgia, Cambria, "Times New Roman", Times, serif;
+}
+
+.font-mono-writing {
+  font-family: var(--font-mono), ui-monospace, monospace;
+}
+
+.glass-panel {
+  background: color-mix(in srgb, var(--popover) 90%, transparent);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+
+.cluster-pill {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  border-radius: 0.85rem;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--surface) 75%, transparent);
+  padding: 0.25rem;
+}
+
+.glow-accent {
+  box-shadow: 0 0 16px rgba(216, 166, 87, 0.18);
 }
 
 button,

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import {
+  Check,
   Compass,
   ExternalLink,
   Plus,
@@ -22,6 +23,7 @@ export function DiscoverFeed({ onCaptureItem }: DiscoverFeedProps) {
   const [items, setItems] = useState<DiscoverItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [activeSource, setActiveSource] = useState<"All" | "Hacker News" | "GitHub Trending">("All");
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   const fetchFeed = useCallback(async () => {
     setIsLoading(true);
@@ -56,13 +58,26 @@ export function DiscoverFeed({ onCaptureItem }: DiscoverFeedProps) {
     };
   }, []);
 
+  function handleCapture(item: DiscoverItem) {
+    onCaptureItem(item.title, item.url, item.description);
+    setToastMessage(`Captured "${item.title}" to Inbox`);
+    window.setTimeout(() => setToastMessage(null), 3000);
+  }
+
   const filteredItems = items.filter((item) => {
     if (activeSource === "All") return true;
     return item.source === activeSource;
   });
 
   return (
-    <section className="flex h-full min-w-0 flex-1 flex-col overflow-hidden bg-[var(--editor)]">
+    <section className="relative flex h-full min-w-0 flex-1 flex-col overflow-hidden bg-[var(--editor)]">
+      {toastMessage ? (
+        <div className="fixed bottom-6 right-6 z-50 flex items-center gap-2 rounded-xl bg-[var(--accent)] px-4 py-2.5 text-xs font-semibold text-[var(--accent-foreground)] shadow-2xl animate-bounce">
+          <Check className="size-4" />
+          <span>{toastMessage}</span>
+        </div>
+      ) : null}
+
       <header className="flex h-16 items-center justify-between border-b border-[var(--border)] px-6 lg:h-18 lg:px-8">
         <div className="flex items-center gap-3">
           <span className="grid size-9 place-items-center rounded-xl bg-[color-mix(in_srgb,var(--accent)_14%,transparent)] text-[var(--accent)]">
@@ -173,7 +188,7 @@ export function DiscoverFeed({ onCaptureItem }: DiscoverFeedProps) {
                     size="sm"
                     variant="secondary"
                     className="h-8 gap-1 px-2.5 text-xs"
-                    onClick={() => onCaptureItem(item.title, item.url, item.description)}
+                    onClick={() => handleCapture(item)}
                   >
                     <Plus className="size-3.5 text-[var(--accent)]" />
                     <span>Capture to Thought</span>

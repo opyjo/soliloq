@@ -19,6 +19,7 @@ import {
   MoreHorizontal,
   Pin,
   PinOff,
+  Sparkles,
   Timer,
   Trash2,
   Volume2,
@@ -26,13 +27,14 @@ import {
 
 import { Button } from "@/components/ui/button";
 import type { Thought, ThoughtStatus } from "@/lib/database.types";
-import type { AudioAttachment } from "@/lib/types";
+import type { AudioAttachment, FontFamily } from "@/lib/types";
 import { MarkdownPreview } from "@/components/markdown-preview";
 import { WritingStatsModal } from "@/components/writing-stats-modal";
 import { AudioRecorder } from "@/components/audio-recorder";
 import { DeepPromptsModal } from "@/components/deep-prompts";
 import { AmbientAudioPlayer } from "@/components/ambient-audio";
 import { SprintTimerModal } from "@/components/sprint-timer";
+import { AICompanion } from "@/components/ai-companion";
 import { cn } from "@/lib/utils";
 
 type SaveState = "idle" | "saving" | "saved" | "offline" | "error";
@@ -99,9 +101,11 @@ export function ThoughtEditor({
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isDictating, setIsDictating] = useState(false);
   const [isMarkdownPreview, setIsMarkdownPreview] = useState(false);
+  const [fontFamily, setFontFamily] = useState<FontFamily>("sans");
   const [isStatsOpen, setIsStatsOpen] = useState(false);
   const [isPromptsOpen, setIsPromptsOpen] = useState(false);
   const [isSprintOpen, setIsSprintOpen] = useState(false);
+  const [isAIOpen, setIsAIOpen] = useState(false);
   const [showAudioRecorder, setShowAudioRecorder] = useState(false);
   const [audioAttachments, setAudioAttachments] = useState<AudioAttachment[]>([]);
   const [leavingAction, setLeavingAction] = useState<"archive" | "delete" | null>(null);
@@ -190,9 +194,19 @@ export function ThoughtEditor({
     onPatch({ body: `${thought.body}${template}` });
   }
 
+  function handleAppendAIText(content: string) {
+    onPatch({ body: `${thought.body}${content}` });
+  }
+
   const wordCount = thought.body.trim()
     ? thought.body.trim().split(/\s+/).length
     : 0;
+
+  const fontClass = {
+    sans: "font-sans-writing",
+    serif: "font-serif-writing",
+    mono: "font-mono-writing",
+  }[fontFamily];
 
   return (
     <section
@@ -230,133 +244,175 @@ export function ThoughtEditor({
             ))}
           </select>
 
-          <div className="hidden sm:block">
+          <select
+            value={fontFamily}
+            onChange={(e) => setFontFamily(e.target.value as FontFamily)}
+            className="hidden sm:block h-9 cursor-pointer rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 text-xs font-medium outline-none hover:bg-[var(--surface-hover)]"
+            aria-label="Typography style"
+            title="Choose Font Style"
+          >
+            <option value="sans">Sans Serif</option>
+            <option value="serif">Serif (Literary)</option>
+            <option value="mono">Monospace</option>
+          </select>
+
+          <div className="hidden xl:block">
             <AmbientAudioPlayer />
           </div>
         </div>
 
-        <div className="flex items-center gap-1">
+        {/* Clustered Toolbars */}
+        <div className="flex items-center gap-2">
           <SaveIndicator state={saveState} />
 
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => setIsPromptsOpen(true)}
-            aria-label="Socratic Prompts"
-            title="Socratic & Mental Model Prompts"
-          >
-            <Brain className="size-4 text-[var(--accent)]" />
-          </Button>
-
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => setIsSprintOpen(true)}
-            aria-label="Focus Sprint Timer"
-            title="Monk Mode Sprint Timer"
-          >
-            <Timer className="size-4" />
-          </Button>
-
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => setIsMarkdownPreview((prev) => !prev)}
-            aria-label={isMarkdownPreview ? "Switch to editor" : "Switch to markdown preview"}
-            className={cn(isMarkdownPreview && "text-[var(--accent)] bg-[color-mix(in_srgb,var(--accent)_12%,transparent)]")}
-          >
-            {isMarkdownPreview ? <Edit3 className="size-4" /> : <Eye className="size-4" />}
-          </Button>
-
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => setIsStatsOpen(true)}
-            aria-label="View writing metrics"
-          >
-            <BarChart3 className="size-4" />
-          </Button>
-
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => setShowAudioRecorder((prev) => !prev)}
-            aria-label="Toggle voice memo recorder"
-            className={cn(showAudioRecorder && "text-[var(--accent)]")}
-          >
-            <Volume2 className="size-4" />
-          </Button>
-
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={onToggleFocusMode}
-            aria-label={isFocusMode ? "Exit focus mode" : "Enter focus mode"}
-          >
-            {isFocusMode ? (
-              <Minimize2 className="size-4 text-[var(--accent)]" />
-            ) : (
-              <Maximize2 className="size-4" />
-            )}
-          </Button>
-
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={toggleDictation}
-            aria-label={isDictating ? "Stop dictation" : "Start dictation"}
-            className={cn(
-              isDictating && "bg-[color-mix(in_srgb,var(--accent)_14%,transparent)] text-[var(--accent)]",
-            )}
-          >
-            {isDictating ? <MicOff className="size-4" /> : <Mic className="size-4" />}
-          </Button>
-
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => onPatch({ is_pinned: !thought.is_pinned })}
-            aria-label={thought.is_pinned ? "Unpin thought" : "Pin thought"}
-            className={cn(thought.is_pinned && "pin-bloom")}
-          >
-            {thought.is_pinned ? (
-              <PinOff className="size-4 text-[var(--accent)]" />
-            ) : (
-              <Pin className="size-4" />
-            )}
-          </Button>
-
-          <div className="relative">
+          {/* AI & Insights Cluster */}
+          <div className="cluster-pill">
             <Button
               variant="ghost"
               size="icon"
-              onClick={() => setIsMenuOpen((open) => !open)}
-              aria-label="More thought actions"
-              aria-expanded={isMenuOpen}
+              onClick={() => setIsAIOpen((prev) => !prev)}
+              aria-label="Moonshot AI Companion"
+              title="AI Socratic Companion"
+              className={cn("size-8", isAIOpen && "text-[var(--accent)] glow-accent bg-[color-mix(in_srgb,var(--accent)_16%,transparent)]")}
             >
-              <MoreHorizontal className="size-4" />
+              <Sparkles className="size-4 text-[var(--accent)]" />
             </Button>
 
-            {isMenuOpen ? (
-              <div className="absolute right-0 top-11 z-30 w-44 rounded-xl border border-[var(--border)] bg-[var(--popover)] p-1.5 shadow-2xl">
-                <button
-                  type="button"
-                  onClick={handleArchive}
-                  className="flex h-9 w-full items-center gap-2 rounded-lg px-3 text-left text-xs text-[var(--muted-foreground)] hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
-                >
-                  <Archive className="size-3.5" />
-                  Archive
-                </button>
-                <button
-                  type="button"
-                  onClick={handleDelete}
-                  className="flex h-9 w-full items-center gap-2 rounded-lg px-3 text-left text-xs text-[var(--danger)] hover:bg-[color-mix(in_srgb,var(--danger)_10%,transparent)]"
-                >
-                  <Trash2 className="size-3.5" />
-                  Delete forever
-                </button>
-              </div>
-            ) : null}
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setIsPromptsOpen(true)}
+              aria-label="Socratic Prompts"
+              title="Socratic & Mental Model Prompts"
+              className="size-8"
+            >
+              <Brain className="size-4" />
+            </Button>
+
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setIsStatsOpen(true)}
+              aria-label="Writing Metrics"
+              title="Writing Insights & Word Counts"
+              className="size-8"
+            >
+              <BarChart3 className="size-4" />
+            </Button>
+          </div>
+
+          {/* Focus Tools Cluster */}
+          <div className="cluster-pill">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setIsSprintOpen(true)}
+              aria-label="Sprint Timer"
+              title="Monk Mode Writing Sprint"
+              className="size-8"
+            >
+              <Timer className="size-4" />
+            </Button>
+
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={onToggleFocusMode}
+              aria-label={isFocusMode ? "Exit focus mode" : "Enter focus mode"}
+              title="Zen Focus Mode"
+              className="size-8"
+            >
+              {isFocusMode ? (
+                <Minimize2 className="size-4 text-[var(--accent)]" />
+              ) : (
+                <Maximize2 className="size-4" />
+              )}
+            </Button>
+          </div>
+
+          {/* Editor Actions Cluster */}
+          <div className="cluster-pill">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setIsMarkdownPreview((prev) => !prev)}
+              aria-label={isMarkdownPreview ? "Switch to editor" : "Switch to markdown preview"}
+              title="Toggle Markdown Live Preview"
+              className={cn("size-8", isMarkdownPreview && "text-[var(--accent)] bg-[color-mix(in_srgb,var(--accent)_12%,transparent)]")}
+            >
+              {isMarkdownPreview ? <Edit3 className="size-4" /> : <Eye className="size-4" />}
+            </Button>
+
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setShowAudioRecorder((prev) => !prev)}
+              aria-label="Toggle voice memo recorder"
+              title="Voice Memos"
+              className={cn("size-8", showAudioRecorder && "text-[var(--accent)]")}
+            >
+              <Volume2 className="size-4" />
+            </Button>
+
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={toggleDictation}
+              aria-label={isDictating ? "Stop dictation" : "Start dictation"}
+              title="Voice Dictation"
+              className={cn("size-8", isDictating && "bg-[color-mix(in_srgb,var(--accent)_14%,transparent)] text-[var(--accent)]")}
+            >
+              {isDictating ? <MicOff className="size-4" /> : <Mic className="size-4" />}
+            </Button>
+
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => onPatch({ is_pinned: !thought.is_pinned })}
+              aria-label={thought.is_pinned ? "Unpin thought" : "Pin thought"}
+              title="Pin Thought"
+              className={cn("size-8", thought.is_pinned && "pin-bloom")}
+            >
+              {thought.is_pinned ? (
+                <PinOff className="size-4 text-[var(--accent)]" />
+              ) : (
+                <Pin className="size-4" />
+              )}
+            </Button>
+
+            <div className="relative">
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setIsMenuOpen((open) => !open)}
+                aria-label="More thought actions"
+                aria-expanded={isMenuOpen}
+                className="size-8"
+              >
+                <MoreHorizontal className="size-4" />
+              </Button>
+
+              {isMenuOpen ? (
+                <div className="absolute right-0 top-11 z-30 w-44 rounded-xl border border-[var(--border)] bg-[var(--popover)] p-1.5 shadow-2xl">
+                  <button
+                    type="button"
+                    onClick={handleArchive}
+                    className="flex h-9 w-full items-center gap-2 rounded-lg px-3 text-left text-xs text-[var(--muted-foreground)] hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
+                  >
+                    <Archive className="size-3.5" />
+                    Archive
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleDelete}
+                    className="flex h-9 w-full items-center gap-2 rounded-lg px-3 text-left text-xs text-[var(--danger)] hover:bg-[color-mix(in_srgb,var(--danger)_10%,transparent)]"
+                  >
+                    <Trash2 className="size-3.5" />
+                    Delete forever
+                  </button>
+                </div>
+              ) : null}
+            </div>
           </div>
         </div>
       </header>
@@ -367,12 +423,15 @@ export function ThoughtEditor({
             value={thought.title ?? ""}
             onChange={(event) => onPatch({ title: event.target.value || null })}
             placeholder="Untitled thought"
-            className="w-full bg-transparent text-3xl font-medium leading-tight tracking-[-0.045em] text-[var(--foreground)] outline-none placeholder:text-[var(--placeholder)] sm:text-4xl"
+            className={cn(
+              "w-full bg-transparent text-[18px] font-semibold leading-tight tracking-tight text-[var(--foreground)] outline-none placeholder:text-[var(--placeholder)] sm:text-[20px]",
+              fontClass,
+            )}
             aria-label="Thought title"
           />
 
           {showAudioRecorder ? (
-            <div className="mt-6">
+            <div className="mt-4">
               <AudioRecorder
                 attachments={audioAttachments}
                 onAddAttachment={(attachment) =>
@@ -386,11 +445,12 @@ export function ThoughtEditor({
           ) : null}
 
           {isMarkdownPreview ? (
-            <div className="mt-8 min-h-[48dvh] w-full flex-1">
+            <div className="mt-5 min-h-[48dvh] w-full flex-1">
               <MarkdownPreview
                 content={thought.body}
                 onWikiLinkClick={onWikiLinkClick}
                 onTagClick={onTagClick}
+                className={fontClass}
               />
             </div>
           ) : (
@@ -399,7 +459,10 @@ export function ThoughtEditor({
               value={thought.body}
               onChange={(event) => onPatch({ body: event.target.value })}
               placeholder={"Start wherever you are.\n\nYou do not need to make sense of it yet.\n\nTips: Use #tags to categorize, or [[Other Thought]] to link."}
-              className="mt-8 min-h-[48dvh] w-full flex-1 resize-none bg-transparent text-[17px] leading-[1.9] text-[var(--writing)] outline-none placeholder:text-[var(--placeholder)] sm:text-[18px]"
+              className={cn(
+                "mt-5 min-h-[48dvh] w-full flex-1 resize-none bg-transparent text-[13px] leading-[1.75] text-[var(--writing)] outline-none placeholder:text-[var(--placeholder)] sm:text-[14px]",
+                fontClass,
+              )}
               aria-label="Thought"
             />
           )}
@@ -487,6 +550,14 @@ export function ThoughtEditor({
         isOpen={isSprintOpen}
         onClose={() => setIsSprintOpen(false)}
         currentWordCount={wordCount}
+      />
+
+      <AICompanion
+        isOpen={isAIOpen}
+        onClose={() => setIsAIOpen(false)}
+        thoughtTitle={thought.title}
+        thoughtBody={thought.body}
+        onAppendToThought={handleAppendAIText}
       />
     </section>
   );

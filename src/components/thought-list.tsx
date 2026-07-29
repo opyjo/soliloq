@@ -144,13 +144,13 @@ export function ThoughtList({
                   {thought.is_pinned ? (
                     <span className="pin-dot absolute right-3 top-3 size-1.5 rounded-full bg-[var(--accent)]" />
                   ) : null}
-                  <div className="pr-4 text-[15px] font-medium leading-5 tracking-[-0.015em]">
+                  <div className="pr-4 text-[13px] font-medium leading-4 tracking-tight">
                     {displayTitle}
                   </div>
-                  <p className="mt-1.5 line-clamp-2 text-xs leading-5 text-[var(--muted)]">
+                  <p className="mt-1 line-clamp-2 text-[11px] leading-4 text-[var(--muted)]">
                     {preview || "A fresh page, waiting for you."}
                   </p>
-                  <div className="mt-3 flex items-center justify-between text-[10px] font-medium uppercase tracking-[0.1em] text-[var(--muted)]">
+                  <div className="mt-2.5 flex items-center justify-between text-[9px] font-medium uppercase tracking-wider text-[var(--muted)]">
                     <span>{thought.status === "developing" ? "Developing" : thought.status}</span>
                     <time>{formatRelativeDate(thought.updated_at)}</time>
                   </div>

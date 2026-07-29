@@ -433,12 +433,16 @@ export function ThoughtApp() {
     (itemTitle: string, itemUrl: string, itemDescription: string) => {
       if (!user) return;
 
-      const bodyText = `# ${itemTitle}\nSource: [${itemUrl}](${itemUrl})\n\n> ${itemDescription}\n\n## Reflections & Notes:\n- `;
+      const cleanTitle = itemTitle.trim();
+      const cleanUrl = itemUrl.trim();
+      const cleanDesc = itemDescription.trim();
+
+      const bodyText = `🔗 **Link**: [${cleanUrl}](${cleanUrl})\n\n> ${cleanDesc}\n\n### 💡 Key Takeaways & Reflections:\n- \n\n### 🚀 Action Items / Ideas:\n- `;
 
       const newThought: Thought = {
         id: crypto.randomUUID(),
         user_id: user.id,
-        title: itemTitle,
+        title: cleanTitle,
         body: bodyText,
         status: "inbox",
         is_pinned: false,
@@ -747,18 +751,18 @@ export function ThoughtApp() {
                     type="button"
                     onClick={() => changeView(item.view)}
                     className={cn(
-                      "flex h-10 w-full items-center justify-between rounded-xl px-3 text-xs font-medium transition",
+                      "flex h-8 w-full items-center justify-between rounded-lg px-2.5 text-[11px] font-medium transition",
                       isActive
                         ? "bg-[var(--surface-hover)] text-[var(--foreground)]"
                         : "text-[var(--muted-foreground)] hover:bg-[var(--surface)] hover:text-[var(--foreground)]",
                     )}
                   >
-                    <div className="flex items-center gap-2.5">
-                      <Icon className="size-4 text-[var(--accent)]" />
+                    <div className="flex items-center gap-2">
+                      <Icon className="size-3.5 text-[var(--accent)]" />
                       <span>{item.label}</span>
                     </div>
                     {count > 0 ? (
-                      <span className="rounded-full bg-[var(--surface)] px-2 py-0.5 font-mono text-[10px] text-[var(--muted)]">
+                      <span className="rounded-md bg-[var(--surface)] px-1.5 py-0.5 font-mono text-[9px] text-[var(--muted)]">
                         {count}
                       </span>
                     ) : null}
@@ -768,31 +772,50 @@ export function ThoughtApp() {
             </nav>
           </div>
 
-          <div className="space-y-1 border-t border-[var(--border)] pt-3">
-            <button
-              type="button"
-              onClick={() => setIsExportImportOpen(true)}
-              className="flex h-9 w-full items-center gap-2 rounded-xl px-3 text-xs text-[var(--muted-foreground)] hover:bg-[var(--surface)] hover:text-[var(--foreground)]"
-            >
-              <Download className="size-3.5" />
-              Backup / Export
-            </button>
-            <button
-              type="button"
-              onClick={() => setIsPasscodeSettingsOpen(true)}
-              className="flex h-9 w-full items-center gap-2 rounded-xl px-3 text-xs text-[var(--muted-foreground)] hover:bg-[var(--surface)] hover:text-[var(--foreground)]"
-            >
-              <KeyRound className="size-3.5" />
-              Passcode Lock
-            </button>
-            <button
-              type="button"
-              onClick={handleSignOut}
-              className="flex h-9 w-full items-center gap-2 rounded-xl px-3 text-xs text-[var(--muted-foreground)] hover:bg-[var(--surface)] hover:text-[var(--foreground)]"
-            >
-              <LogOut className="size-3.5" />
-              Sign out ({user.email?.slice(0, 15)}…)
-            </button>
+          <div className="border-t border-[var(--border)] pt-3">
+            <div className="flex items-center justify-between rounded-xl bg-[var(--surface)] p-2">
+              <div className="flex min-w-0 items-center gap-2">
+                <span className="grid size-7 shrink-0 place-items-center rounded-lg bg-[var(--accent)] text-[10px] font-bold text-[var(--accent-foreground)]">
+                  {user.email?.[0]?.toUpperCase() || "U"}
+                </span>
+                <span className="truncate text-[11px] font-medium text-[var(--foreground)]" title={user.email || ""}>
+                  {user.email || "Account"}
+                </span>
+              </div>
+
+              <div className="flex items-center gap-0.5 shrink-0">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-7"
+                  onClick={() => setIsExportImportOpen(true)}
+                  title="Backup / Export Data"
+                  aria-label="Backup / Export"
+                >
+                  <Download className="size-3 text-[var(--muted-foreground)]" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-7"
+                  onClick={() => setIsPasscodeSettingsOpen(true)}
+                  title="Passcode Lock Settings"
+                  aria-label="Passcode Lock"
+                >
+                  <KeyRound className="size-3 text-[var(--muted-foreground)]" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-7 hover:text-[var(--danger)]"
+                  onClick={handleSignOut}
+                  title="Sign Out"
+                  aria-label="Sign Out"
+                >
+                  <LogOut className="size-3" />
+                </Button>
+              </div>
+            </div>
           </div>
         </aside>
 
