@@ -8,8 +8,8 @@ export default function manifest(): MetadataRoute.Manifest {
       "A quiet, private writing space to catch thoughts now and continue them later.",
     start_url: "/",
     display: "standalone",
-    background_color: "#10120f",
-    theme_color: "#10120f",
+    background_color: "#08090c",
+    theme_color: "#08090c",
     orientation: "portrait-primary",
     icons: [
       {
