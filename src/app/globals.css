@@ -23,6 +23,98 @@
   --danger: #e78a7f;
 }
 
+[data-theme="sepia"] {
+  --background: #fbf7ee;
+  --foreground: #2c2518;
+  --writing: #3a3223;
+  --muted-foreground: #7d705c;
+  --muted: #a3957e;
+  --placeholder: #b8ab96;
+  --surface: #f3ecdf;
+  --surface-hover: #eae1d1;
+  --surface-selected: #e0d5c2;
+  --panel: #f7f2e5;
+  --sidebar: #f5efe2;
+  --editor: #fbf7ee;
+  --popover: #f3ecdf;
+  --input: #f3ecdf;
+  --border: rgba(44, 37, 24, 0.12);
+  --border-strong: rgba(160, 96, 24, 0.4);
+  --accent: #a06018;
+  --accent-hover: #824d10;
+  --accent-foreground: #ffffff;
+  --danger: #c0392b;
+}
+
+[data-theme="oled"] {
+  --background: #000000;
+  --foreground: #ffffff;
+  --writing: #e2e8f0;
+  --muted-foreground: #94a3b8;
+  --muted: #64748b;
+  --placeholder: #475569;
+  --surface: #0a0a0a;
+  --surface-hover: #171717;
+  --surface-selected: #262626;
+  --panel: #050505;
+  --sidebar: #000000;
+  --editor: #000000;
+  --popover: #121212;
+  --input: #0a0a0a;
+  --border: rgba(255, 255, 255, 0.15);
+  --border-strong: rgba(56, 189, 248, 0.5);
+  --accent: #38bdf8;
+  --accent-hover: #7dd3fc;
+  --accent-foreground: #030712;
+  --danger: #f87171;
+}
+
+[data-theme="cream"] {
+  --background: #f4f1ea;
+  --foreground: #1f2421;
+  --writing: #2b302c;
+  --muted-foreground: #5c635e;
+  --muted: #88908a;
+  --placeholder: #a8b0aa;
+  --surface: #e9e5dc;
+  --surface-hover: #dfdad0;
+  --surface-selected: #d4cecf;
+  --panel: #eeeeeb;
+  --sidebar: #eae6dd;
+  --editor: #f4f1ea;
+  --popover: #e9e5dc;
+  --input: #e9e5dc;
+  --border: rgba(31, 36, 33, 0.12);
+  --border-strong: rgba(45, 106, 79, 0.4);
+  --accent: #2d6a4f;
+  --accent-hover: #1b4332;
+  --accent-foreground: #ffffff;
+  --danger: #d90429;
+}
+
+[data-theme="nord"] {
+  --background: #2e3440;
+  --foreground: #eceff4;
+  --writing: #e5e9f0;
+  --muted-foreground: #d8dee9;
+  --muted: #4c566a;
+  --placeholder: #434c5e;
+  --surface: #3b4252;
+  --surface-hover: #434c5e;
+  --surface-selected: #4c566a;
+  --panel: #2e3440;
+  --sidebar: #2b303c;
+  --editor: #2e3440;
+  --popover: #3b4252;
+  --input: #3b4252;
+  --border: rgba(236, 239, 244, 0.14);
+  --border-strong: rgba(136, 192, 208, 0.45);
+  --accent: #88c0d0;
+  --accent-hover: #81a1c1;
+  --accent-foreground: #2e3440;
+  --danger: #bf616a;
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);

@@ -1,6 +1,7 @@
 "use client";
 
-import { Search, SquarePen } from "lucide-react";
+import { useMemo } from "react";
+import { Dices, Search, SquarePen } from "lucide-react";
 import type { CSSProperties } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -11,11 +12,13 @@ type ThoughtListProps = {
   title: string;
   description: string;
   thoughts: Thought[];
+  allThoughts: Thought[];
   activeId: string | null;
   search: string;
   onSearch: (value: string) => void;
   onSelect: (id: string) => void;
   onNew: () => void;
+  onSelectRandom: () => void;
   className?: string;
 };
 
@@ -23,13 +26,27 @@ export function ThoughtList({
   title,
   description,
   thoughts,
+  allThoughts,
   activeId,
   search,
   onSearch,
   onSelect,
   onNew,
+  onSelectRandom,
   className,
 }: ThoughtListProps) {
+  // Extract all hashtags across thoughts
+  const availableTags = useMemo(() => {
+    const tagsSet = new Set<string>();
+    allThoughts.forEach((t) => {
+      const matches = t.body.match(/#[\w\-]+/g);
+      if (matches) {
+        matches.forEach((tag) => tagsSet.add(tag));
+      }
+    });
+    return Array.from(tagsSet).slice(0, 8);
+  }, [allThoughts]);
+
   return (
     <section
       className={cn(
@@ -43,14 +60,26 @@ export function ThoughtList({
             <h1 className="text-xl font-semibold tracking-[-0.035em]">{title}</h1>
             <p className="mt-1 text-xs text-[var(--muted)]">{description}</p>
           </div>
-          <Button
-            size="icon"
-            onClick={onNew}
-            aria-label="Create a new thought"
-            className="lg:hidden"
-          >
-            <SquarePen className="size-4" />
-          </Button>
+          <div className="flex items-center gap-1.5">
+            <Button
+              size="icon"
+              variant="secondary"
+              onClick={onSelectRandom}
+              aria-label="Resurface a random thought"
+              title="Serendipity: Random thought"
+              className="size-9 rounded-xl border-[var(--border)]"
+            >
+              <Dices className="size-4 text-[var(--accent)]" />
+            </Button>
+            <Button
+              size="icon"
+              onClick={onNew}
+              aria-label="Create a new thought"
+              className="lg:hidden"
+            >
+              <SquarePen className="size-4" />
+            </Button>
+          </div>
         </div>
 
         <label className="relative block">
@@ -58,10 +87,30 @@ export function ThoughtList({
           <input
             value={search}
             onChange={(event) => onSearch(event.target.value)}
-            placeholder="Search your words"
+            placeholder="Search words or #tags"
             className="h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--input)] pl-9 pr-3 text-sm outline-none transition placeholder:text-[var(--muted)] focus:border-[var(--border-strong)]"
           />
         </label>
+
+        {availableTags.length > 0 ? (
+          <div className="mt-3 flex flex-wrap items-center gap-1.5 overflow-x-auto pb-1 text-xs">
+            {availableTags.map((tag) => (
+              <button
+                key={tag}
+                type="button"
+                onClick={() => onSearch(search === tag ? "" : tag)}
+                className={cn(
+                  "rounded-full px-2.5 py-1 text-[11px] font-medium transition",
+                  search === tag
+                    ? "bg-[var(--accent)] text-[var(--accent-foreground)]"
+                    : "bg-[var(--surface-hover)] text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+                )}
+              >
+                {tag}
+              </button>
+            ))}
+          </div>
+        ) : null}
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto p-2.5">

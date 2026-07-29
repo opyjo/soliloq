@@ -5,10 +5,15 @@ import {
   BookOpenText,
   Clock3,
   Command as CommandIcon,
+  Dices,
+  Download,
   Feather,
   Inbox,
+  KeyRound,
   LoaderCircle,
+  Lock,
   LogOut,
+  Palette,
   Pin,
   Plus,
   Search,
@@ -30,10 +35,13 @@ import {
 } from "@/components/command-palette";
 import { ThoughtEditor } from "@/components/thought-editor";
 import { ThoughtList } from "@/components/thought-list";
+import { PasscodeLock, PasscodeSettingsModal } from "@/components/passcode-lock";
+import { ExportImportDialog } from "@/components/export-import-dialog";
 import { Button } from "@/components/ui/button";
 import type { Thought } from "@/lib/database.types";
+import type { AppTheme } from "@/lib/types";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
-import { cn } from "@/lib/utils";
+import { cn, deriveThoughtTitle } from "@/lib/utils";
 
 type View = "all" | "inbox" | "developing" | "pinned" | "review" | "archived";
 type SaveState = "idle" | "saving" | "saved" | "offline" | "error";
@@ -60,6 +68,14 @@ function pendingStorageKey(userId: string) {
   return `still:pending:${userId}`;
 }
 
+function lockStorageKey(userId: string) {
+  return `still:lock:${userId}`;
+}
+
+function themeStorageKey(userId: string) {
+  return `still:theme:${userId}`;
+}
+
 function isThought(value: unknown): value is Thought {
   if (!value || typeof value !== "object") return false;
   const candidate = value as Partial<Thought>;
@@ -73,7 +89,6 @@ function isThought(value: unknown): value is Thought {
 export function ThoughtApp() {
   const [user, setUser] = useState<User | null>(null);
   const [isAuthLoading, setIsAuthLoading] = useState(true);
-  const [isDataLoading, setIsDataLoading] = useState(false);
   const [thoughts, setThoughts] = useState<Thought[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [view, setView] = useState<View>("all");
@@ -87,8 +102,29 @@ export function ThoughtApp() {
   const pendingRef = useRef<Thought | null>(null);
   const persistedIdsRef = useRef(new Set<string>());
 
+  // Features State
+  const [hashedPin, setHashedPin] = useState<string | null>(null);
+  const [isLocked, setIsLocked] = useState(false);
+  const [isPasscodeSettingsOpen, setIsPasscodeSettingsOpen] = useState(false);
+  const [isExportImportOpen, setIsExportImportOpen] = useState(false);
+
   const loadThoughts = useCallback(async (currentUser: User) => {
-    setIsDataLoading(true);
+    // Load local lock & theme configuration
+    const savedPin = window.localStorage.getItem(lockStorageKey(currentUser.id));
+    if (savedPin) {
+      setHashedPin(savedPin);
+      setIsLocked(true);
+    }
+
+    const savedTheme = window.localStorage.getItem(themeStorageKey(currentUser.id)) as AppTheme;
+    if (savedTheme) {
+      if (savedTheme === "default") {
+        document.documentElement.removeAttribute("data-theme");
+      } else {
+        document.documentElement.setAttribute("data-theme", savedTheme);
+      }
+    }
+
     const supabase = getSupabaseBrowserClient();
     const { data, error } = await supabase
       .from("thoughts")
@@ -99,7 +135,6 @@ export function ThoughtApp() {
 
     if (error) {
       setSaveState("error");
-      setIsDataLoading(false);
       return;
     }
 
@@ -137,8 +172,6 @@ export function ThoughtApp() {
       setPendingThought(recoveredThought);
       setSaveState(navigator.onLine ? "saving" : "offline");
     }
-
-    setIsDataLoading(false);
   }, []);
 
   useEffect(() => {
@@ -246,65 +279,132 @@ export function ThoughtApp() {
     [],
   );
 
+  const handleSelectRandomThought = useCallback(() => {
+    if (thoughts.length === 0) return;
+    const randomIndex = Math.floor(Math.random() * thoughts.length);
+    const chosen = thoughts[randomIndex];
+    setActiveId(chosen.id);
+    setShowMobileEditor(true);
+  }, [thoughts]);
+
+  const changeTheme = useCallback(
+    (nextTheme: AppTheme) => {
+      if (nextTheme === "default") {
+        document.documentElement.removeAttribute("data-theme");
+      } else {
+        document.documentElement.setAttribute("data-theme", nextTheme);
+      }
+      if (user) {
+        window.localStorage.setItem(themeStorageKey(user.id), nextTheme);
+      }
+    },
+    [user],
+  );
+
   useEffect(() => {
     function handleKeyboardShortcuts(event: KeyboardEvent) {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+      const isCmdOrCtrl = event.metaKey || event.ctrlKey;
+
+      if (isCmdOrCtrl && event.key.toLowerCase() === "k") {
         event.preventDefault();
         setIsCommandPaletteOpen((open) => !open);
-        return;
       }
 
-      if (
-        event.key === "Escape" &&
-        isFocusMode &&
-        !isCommandPaletteOpen
-      ) {
-        setIsFocusMode(false);
+      if (isCmdOrCtrl && event.key.toLowerCase() === "l") {
+        event.preventDefault();
+        if (hashedPin) {
+          setIsLocked(true);
+        } else {
+          setIsPasscodeSettingsOpen(true);
+        }
+      }
+
+      if (isCmdOrCtrl && event.key.toLowerCase() === "r" && !event.shiftKey) {
+        event.preventDefault();
+        handleSelectRandomThought();
       }
     }
 
     window.addEventListener("keydown", handleKeyboardShortcuts);
     return () => window.removeEventListener("keydown", handleKeyboardShortcuts);
-  }, [isCommandPaletteOpen, isFocusMode]);
+  }, [hashedPin, handleSelectRandomThought]);
 
-  const activeThought =
-    thoughts.find((thought) => thought.id === activeId) ?? null;
+  const activeThought = useMemo(
+    () => thoughts.find((thought) => thought.id === activeId) ?? null,
+    [activeId, thoughts],
+  );
 
   const filteredThoughts = useMemo(() => {
-    const needle = search.trim().toLocaleLowerCase();
+    const needle = search.trim().toLowerCase();
 
-    return thoughts
-      .filter((thought) => {
-        if (view === "all" && thought.status === "archived") return false;
-        if (view === "inbox" && thought.status !== "inbox") return false;
-        if (view === "developing" && thought.status !== "developing") return false;
-        if (view === "pinned" && !thought.is_pinned) return false;
-        if (
-          view === "review" &&
-          (!thought.review_at ||
-            new Date(thought.review_at).getTime() > reviewClock ||
-            thought.status === "archived" ||
-            thought.status === "finished")
-        ) {
-          return false;
+    return thoughts.filter((thought) => {
+      const matchesView = (() => {
+        switch (view) {
+          case "all":
+            return thought.status !== "archived";
+          case "inbox":
+            return thought.status === "inbox";
+          case "developing":
+            return thought.status === "developing";
+          case "pinned":
+            return thought.is_pinned && thought.status !== "archived";
+          case "review":
+            return (
+              Boolean(thought.review_at) &&
+              new Date(thought.review_at!).getTime() <= reviewClock &&
+              thought.status !== "archived" &&
+              thought.status !== "finished"
+            );
+          case "archived":
+            return thought.status === "archived";
         }
-        if (view === "archived" && thought.status !== "archived") return false;
+      })();
 
-        if (!needle) return true;
-        return `${thought.title ?? ""} ${thought.body}`
-          .toLocaleLowerCase()
-          .includes(needle);
-      })
-      .sort((a, b) => {
-        if (a.is_pinned !== b.is_pinned) return a.is_pinned ? -1 : 1;
-        return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
-      });
+      if (!matchesView) return false;
+      if (!needle) return true;
+
+      const title = (thought.title ?? "").toLowerCase();
+      const body = thought.body.toLowerCase();
+      return title.includes(needle) || body.includes(needle);
+    });
   }, [reviewClock, search, thoughts, view]);
 
-  function createThought() {
+  const patchActiveThought = useCallback(
+    (patch: Partial<Thought>) => {
+      if (!activeId || !user) return;
+
+      const updatedTime = new Date().toISOString();
+      let updatedThought: Thought | null = null;
+
+      setThoughts((current) =>
+        current.map((thought) => {
+          if (thought.id !== activeId) return thought;
+          updatedThought = {
+            ...thought,
+            ...patch,
+            updated_at: updatedTime,
+          };
+          return updatedThought;
+        }),
+      );
+
+      if (updatedThought) {
+        pendingRef.current = updatedThought;
+        setPendingThought(updatedThought);
+        window.localStorage.setItem(
+          pendingStorageKey(user.id),
+          JSON.stringify(updatedThought),
+        );
+        setSaveState(navigator.onLine ? "saving" : "offline");
+      }
+    },
+    [activeId, user],
+  );
+
+  const createThought = useCallback(() => {
     if (!user) return;
-    const timestamp = new Date().toISOString();
-    const thought: Thought = {
+
+    const newThought: Thought = {
       id: crypto.randomUUID(),
       user_id: user.id,
       title: null,
@@ -312,341 +412,390 @@ export function ThoughtApp() {
       status: "inbox",
       is_pinned: false,
       review_at: null,
-      created_at: timestamp,
-      updated_at: timestamp,
-    };
-
-    setThoughts((current) => [thought, ...current]);
-    setActiveId(thought.id);
-    setView("all");
-    setSearch("");
-    setShowMobileEditor(true);
-    setSaveState("idle");
-  }
-
-  function patchActiveThought(patch: Partial<Thought>) {
-    if (!activeThought || !user) return;
-    const nextThought = {
-      ...activeThought,
-      ...patch,
+      created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };
 
-    setThoughts((current) =>
-      current.map((thought) =>
-        thought.id === nextThought.id ? nextThought : thought,
-      ),
-    );
-    pendingRef.current = nextThought;
-    setPendingThought(nextThought);
-    setSaveState(navigator.onLine ? "saving" : "offline");
-    window.localStorage.setItem(
-      pendingStorageKey(user.id),
-      JSON.stringify(nextThought),
-    );
-  }
+    setThoughts((current) => [newThought, ...current]);
+    setActiveId(newThought.id);
+    setShowMobileEditor(true);
+    setSaveState("idle");
+  }, [user]);
 
-  async function deleteActiveThought() {
-    if (!activeThought || !user) return;
-    const deletingId = activeThought.id;
-    const remaining = thoughts.filter((thought) => thought.id !== deletingId);
+  function deleteActiveThought() {
+    if (!activeId || !user) return;
 
-    setThoughts(remaining);
-    setActiveId(remaining[0]?.id ?? null);
-    setShowMobileEditor(false);
-    if (!remaining.length) setIsFocusMode(false);
+    const targetId = activeId;
+    const isPersisted = persistedIdsRef.current.has(targetId);
 
-    if (pendingRef.current?.id === deletingId) {
+    setThoughts((current) => {
+      const remaining = current.filter((thought) => thought.id !== targetId);
+      setActiveId(remaining[0]?.id ?? null);
+      if (!remaining.length) setShowMobileEditor(false);
+      return remaining;
+    });
+
+    if (pendingRef.current?.id === targetId) {
       pendingRef.current = null;
       setPendingThought(null);
       window.localStorage.removeItem(pendingStorageKey(user.id));
     }
 
-    if (!persistedIdsRef.current.has(deletingId)) return;
-
-    const supabase = getSupabaseBrowserClient();
-    const { error } = await supabase.from("thoughts").delete().eq("id", deletingId);
-    if (error) {
-      setThoughts((current) => [activeThought, ...current]);
-      setActiveId(deletingId);
-      setSaveState("error");
+    if (isPersisted) {
+      const supabase = getSupabaseBrowserClient();
+      void supabase.from("thoughts").delete().eq("id", targetId);
     }
-  }
-
-  async function signOut() {
-    const supabase = getSupabaseBrowserClient();
-    await supabase.auth.signOut();
-  }
-
-  function selectThought(id: string) {
-    setActiveId(id);
-    setShowMobileEditor(true);
   }
 
   function changeView(nextView: View) {
     setView(nextView);
-    setSearch("");
     setShowMobileEditor(false);
-    setIsFocusMode(false);
   }
 
-  const paletteCommands: PaletteCommand[] = [
-    {
-      id: "new-thought",
-      label: "New thought",
-      description: "Open a fresh page and start writing",
-      keywords: "create add capture",
-      icon: Plus,
-      action: createThought,
-    },
-    {
-      id: "focus-mode",
-      label: isFocusMode ? "Exit focus mode" : "Enter focus mode",
-      description: isFocusMode
-        ? "Bring the thought list and navigation back"
-        : "Hide everything except the active thought",
-      keywords: "writing distraction free fullscreen",
-      shortcut: "Esc",
-      icon: Feather,
-      disabled: !activeThought,
-      action: () => setIsFocusMode((current) => !current),
-    },
-    {
-      id: "toggle-pin",
-      label: activeThought?.is_pinned
-        ? "Unpin active thought"
-        : "Pin active thought",
-      description: "Keep this thought close at hand",
-      keywords: "favorite important",
-      icon: Pin,
-      disabled: !activeThought,
-      action: () =>
-        patchActiveThought({ is_pinned: !activeThought?.is_pinned }),
-    },
-    {
-      id: "archive-thought",
-      label: "Archive active thought",
-      description: "Move this thought out of your working views",
-      keywords: "hide complete",
-      icon: Archive,
-      disabled: !activeThought || activeThought.status === "archived",
-      action: () => patchActiveThought({ status: "archived" }),
-    },
-    {
-      id: "view-all",
-      label: "Open all thoughts",
-      description: "Everything still in motion",
-      keywords: "view navigation",
-      icon: BookOpenText,
-      action: () => changeView("all"),
-    },
-    {
-      id: "view-inbox",
-      label: "Open inbox",
-      description: "New and unshaped thoughts",
-      keywords: "view navigation",
-      icon: Inbox,
-      action: () => changeView("inbox"),
-    },
-    {
-      id: "view-developing",
-      label: "Open developing",
-      description: "Ideas worth returning to",
-      keywords: "view navigation progress",
-      icon: Sparkles,
-      action: () => changeView("developing"),
-    },
-    {
-      id: "view-pinned",
-      label: "Open pinned thoughts",
-      description: "The ideas you are keeping close",
-      keywords: "view navigation favorites",
-      icon: Pin,
-      action: () => changeView("pinned"),
-    },
-    {
-      id: "view-review",
-      label: "Open today’s resurfaced thoughts",
-      description: "Writing that is ready to return",
-      keywords: "view navigation review scheduled",
-      icon: Clock3,
-      action: () => changeView("review"),
-    },
-    {
-      id: "view-archive",
-      label: "Open archive",
-      description: "Quietly kept, out of the way",
-      keywords: "view navigation old",
-      icon: Archive,
-      action: () => changeView("archived"),
-    },
-  ];
+  function handleWikiLinkClick(targetTitle: string) {
+    const needle = targetTitle.trim().toLowerCase();
+    const match = thoughts.find((t) =>
+      (t.title ?? deriveThoughtTitle(t.body)).toLowerCase().includes(needle)
+    );
+    if (match) {
+      setActiveId(match.id);
+      setShowMobileEditor(true);
+    } else {
+      // Create new thought with this title
+      if (!user) return;
+      const newThought: Thought = {
+        id: crypto.randomUUID(),
+        user_id: user.id,
+        title: targetTitle,
+        body: "",
+        status: "inbox",
+        is_pinned: false,
+        review_at: null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+      setThoughts((current) => [newThought, ...current]);
+      setActiveId(newThought.id);
+      setShowMobileEditor(true);
+    }
+  }
+
+  async function handleImportThoughts(imported: Partial<Thought>[]) {
+    if (!user) return;
+    const now = new Date().toISOString();
+    const supabase = getSupabaseBrowserClient();
+
+    const formatted: Thought[] = imported.map((item) => ({
+      id: item.id || crypto.randomUUID(),
+      user_id: user.id,
+      title: item.title || null,
+      body: item.body || "",
+      status: (item.status as Thought["status"]) || "inbox",
+      is_pinned: Boolean(item.is_pinned),
+      review_at: item.review_at || null,
+      created_at: item.created_at || now,
+      updated_at: item.updated_at || now,
+    }));
+
+    setThoughts((prev) => [...formatted, ...prev]);
+
+    // Upsert into Supabase
+    for (const t of formatted) {
+      const { search_document, ...insertable } = t;
+      void search_document;
+      await supabase.from("thoughts").upsert(insertable);
+    }
+  }
+
+  async function handleSignOut() {
+    const supabase = getSupabaseBrowserClient();
+    await supabase.auth.signOut();
+    setUser(null);
+    setThoughts([]);
+    setActiveId(null);
+  }
+
+  const paletteCommands: PaletteCommand[] = useMemo(() => {
+    const actions: PaletteCommand[] = [
+      {
+        id: "new-thought",
+        label: "Create a thought",
+        description: "Start a fresh, unshaped thought in your inbox",
+        shortcut: "N",
+        icon: Plus,
+        action: createThought,
+      },
+      {
+        id: "random-thought",
+        label: "Resurface random thought",
+        description: "Serendipity Engine: Surprise yourself with a past thought",
+        shortcut: "⌘R",
+        icon: Dices,
+        action: handleSelectRandomThought,
+      },
+      {
+        id: "lock-app",
+        label: hashedPin ? "Lock Still now" : "Set passcode lock",
+        description: "Secure your session behind a PIN code",
+        shortcut: "⌘L",
+        icon: Lock,
+        action: () => {
+          if (hashedPin) setIsLocked(true);
+          else setIsPasscodeSettingsOpen(true);
+        },
+      },
+      {
+        id: "export-import",
+        label: "Export & Backup Data",
+        description: "Download JSON or Markdown exports and restore backups",
+        icon: Download,
+        action: () => setIsExportImportOpen(true),
+      },
+      {
+        id: "theme-default",
+        label: "Theme: Dark Forest (Default)",
+        description: "Minimal warm dark background",
+        icon: Palette,
+        action: () => changeTheme("default"),
+      },
+      {
+        id: "theme-sepia",
+        label: "Theme: Warm Sepia",
+        description: "Soft parchment paper aesthetic",
+        icon: Palette,
+        action: () => changeTheme("sepia"),
+      },
+      {
+        id: "theme-oled",
+        label: "Theme: OLED Night",
+        description: "True black contrast mode",
+        icon: Palette,
+        action: () => changeTheme("oled"),
+      },
+      {
+        id: "theme-cream",
+        label: "Theme: Warm Cream",
+        description: "Clean light paper mode",
+        icon: Palette,
+        action: () => changeTheme("cream"),
+      },
+      {
+        id: "theme-nord",
+        label: "Theme: Polar Nord",
+        description: "Cool arctic palette",
+        icon: Palette,
+        action: () => changeTheme("nord"),
+      },
+    ];
+
+    navigation.forEach((item) => {
+      actions.push({
+        id: `view-${item.view}`,
+        label: `Go to ${item.label}`,
+        description: viewDetails[item.view].description,
+        icon: item.icon,
+        action: () => changeView(item.view),
+      });
+    });
+
+    actions.push({
+      id: "sign-out",
+      label: "Sign out",
+      description: "Securely end your session",
+      icon: LogOut,
+      action: handleSignOut,
+    });
+
+    return actions;
+  }, [changeTheme, createThought, handleSelectRandomThought, hashedPin]);
 
   if (isAuthLoading) {
     return (
-      <main className="grid min-h-dvh place-items-center bg-[var(--background)]">
-        <div className="flex items-center gap-3 text-sm text-[var(--muted-foreground)]">
-          <LoaderCircle className="size-4 animate-spin" />
-          Opening Still
-        </div>
-      </main>
+      <div className="grid h-dvh w-dvw place-items-center bg-[var(--background)]">
+        <LoaderCircle className="size-6 animate-spin text-[var(--accent)]" />
+      </div>
     );
   }
 
-  if (!user) return <AuthScreen />;
-
-  const details = viewDetails[view];
+  if (!user) {
+    return <AuthScreen />;
+  }
 
   return (
-    <main className="still-shell h-dvh overflow-hidden bg-[var(--background)] text-[var(--foreground)]">
+    <main className="still-shell relative h-dvh w-dvw overflow-hidden bg-[var(--background)] text-[var(--foreground)]">
+      <PasscodeLock
+        isLocked={isLocked}
+        hashedPin={hashedPin}
+        onUnlock={() => setIsLocked(false)}
+        onSetPin={(hashed) => {
+          setHashedPin(hashed);
+          window.localStorage.setItem(lockStorageKey(user.id), hashed);
+        }}
+        onRemovePin={() => {
+          setHashedPin(null);
+          setIsLocked(false);
+          window.localStorage.removeItem(lockStorageKey(user.id));
+        }}
+      />
+
+      <PasscodeSettingsModal
+        isOpen={isPasscodeSettingsOpen}
+        onClose={() => setIsPasscodeSettingsOpen(false)}
+        hashedPin={hashedPin}
+        onSetPin={(hashed) => {
+          setHashedPin(hashed);
+          window.localStorage.setItem(lockStorageKey(user.id), hashed);
+        }}
+        onRemovePin={() => {
+          setHashedPin(null);
+          setIsLocked(false);
+          window.localStorage.removeItem(lockStorageKey(user.id));
+        }}
+      />
+
+      <ExportImportDialog
+        isOpen={isExportImportOpen}
+        onClose={() => setIsExportImportOpen(false)}
+        thoughts={thoughts}
+        onImportThoughts={handleImportThoughts}
+      />
+
       <div className="still-ambient still-ambient-one" aria-hidden="true" />
       <div className="still-ambient still-ambient-two" aria-hidden="true" />
-      <div
-        className={cn(
-          "relative z-10 grid h-full transition-[grid-template-columns] duration-500",
-          isFocusMode
-            ? "lg:grid-cols-[minmax(0,1fr)]"
-            : "lg:grid-cols-[244px_340px_minmax(0,1fr)]",
-        )}
-      >
-        <aside
-          className={cn(
-            "hidden min-h-0 flex-col border-r border-[var(--border)] bg-[color-mix(in_srgb,var(--sidebar)_93%,transparent)] p-4 backdrop-blur-xl lg:flex",
-            isFocusMode && "lg:hidden",
-          )}
-        >
-          <div className="flex h-14 items-center gap-3 px-2">
-            <div className="grid size-9 place-items-center rounded-xl bg-[var(--accent)] text-[var(--accent-foreground)]">
-              <Feather className="size-4.5" />
+
+      <div className="relative z-10 flex h-full min-w-0">
+        <aside className="hidden w-64 flex-col justify-between border-r border-[var(--border)] bg-[var(--sidebar)] p-4 lg:flex xl:w-72">
+          <div>
+            <div className="flex items-center justify-between px-3 py-2">
+              <div className="flex items-center gap-2.5">
+                <span className="grid size-8 place-items-center rounded-xl bg-[color-mix(in_srgb,var(--accent)_14%,transparent)] text-[var(--accent)]">
+                  <Feather className="size-4" />
+                </span>
+                <span className="font-semibold tracking-[-0.04em]">Still</span>
+              </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setIsCommandPaletteOpen(true)}
+                aria-label="Open command palette"
+                className="size-8 text-[var(--muted)] hover:text-[var(--foreground)]"
+              >
+                <CommandIcon className="size-3.5" />
+              </Button>
             </div>
-            <div>
-              <div className="text-sm font-semibold tracking-[-0.02em]">Still</div>
-              <div className="text-[10px] text-[var(--muted)]">Your private writing space</div>
-            </div>
+
+            <Button
+              className="mt-5 h-11 w-full justify-start gap-2.5 rounded-2xl font-medium"
+              onClick={createThought}
+            >
+              <Plus className="size-4" />
+              Start a thought
+            </Button>
+
+            <nav className="mt-6 space-y-1">
+              {navigation.map((item) => {
+                const Icon = item.icon;
+                const isActive = view === item.view;
+                const count = thoughts.filter((t) => {
+                  if (item.view === "all") return t.status !== "archived";
+                  if (item.view === "inbox") return t.status === "inbox";
+                  if (item.view === "developing") return t.status === "developing";
+                  if (item.view === "pinned") return t.is_pinned && t.status !== "archived";
+                  if (item.view === "review")
+                    return (
+                      Boolean(t.review_at) &&
+                      new Date(t.review_at!).getTime() <= reviewClock &&
+                      t.status !== "archived" &&
+                      t.status !== "finished"
+                    );
+                  if (item.view === "archived") return t.status === "archived";
+                  return false;
+                }).length;
+
+                return (
+                  <button
+                    key={item.view}
+                    type="button"
+                    onClick={() => changeView(item.view)}
+                    className={cn(
+                      "flex h-10 w-full items-center justify-between rounded-xl px-3 text-xs font-medium transition",
+                      isActive
+                        ? "bg-[var(--surface-hover)] text-[var(--foreground)]"
+                        : "text-[var(--muted-foreground)] hover:bg-[var(--surface)] hover:text-[var(--foreground)]",
+                    )}
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <Icon className="size-4 text-[var(--accent)]" />
+                      <span>{item.label}</span>
+                    </div>
+                    {count > 0 ? (
+                      <span className="rounded-full bg-[var(--surface)] px-2 py-0.5 font-mono text-[10px] text-[var(--muted)]">
+                        {count}
+                      </span>
+                    ) : null}
+                  </button>
+                );
+              })}
+            </nav>
           </div>
 
-          <Button className="mt-5 w-full justify-start" onClick={createThought}>
-            <Plus className="size-4" />
-            New thought
-          </Button>
-          <Button
-            variant="secondary"
-            className="mt-2 w-full justify-start"
-            onClick={() => setIsCommandPaletteOpen(true)}
-          >
-            <CommandIcon className="size-4" />
-            Quick actions
-            <kbd className="ml-auto rounded-md border border-[var(--border)] px-1.5 py-0.5 font-mono text-[9px] text-[var(--muted)]">
-              ⌘K
-            </kbd>
-          </Button>
-
-          <nav className="mt-6 space-y-1" aria-label="Thought views">
-            {navigation.map((item) => {
-              const Icon = item.icon;
-              const isActive = view === item.view;
-              const count =
-                item.view === "inbox"
-                  ? thoughts.filter((thought) => thought.status === "inbox").length
-                  : item.view === "developing"
-                    ? thoughts.filter((thought) => thought.status === "developing").length
-                    : item.view === "pinned"
-                      ? thoughts.filter((thought) => thought.is_pinned).length
-                      : null;
-
-              return (
-                <button
-                  key={item.view}
-                  type="button"
-                  onClick={() => changeView(item.view)}
-                  className={cn(
-                    "flex h-10 w-full items-center gap-3 rounded-xl px-3 text-sm transition",
-                    isActive
-                      ? "bg-[var(--surface-selected)] text-[var(--foreground)]"
-                      : "text-[var(--muted-foreground)] hover:bg-[var(--surface)] hover:text-[var(--foreground)]",
-                  )}
-                >
-                  <Icon className={cn("size-4", isActive && "text-[var(--accent)]")} />
-                  <span>{item.label}</span>
-                  {count ? (
-                    <span className="ml-auto rounded-md bg-[var(--surface)] px-1.5 py-0.5 text-[10px] text-[var(--muted)]">
-                      {count}
-                    </span>
-                  ) : null}
-                </button>
-              );
-            })}
-          </nav>
-
-          <div className="mt-auto border-t border-[var(--border)] pt-4">
-            <div className="mb-3 px-2">
-              <p className="truncate text-xs text-[var(--muted-foreground)]">{user.email}</p>
-              <p className="mt-1 text-[10px] text-[var(--muted)]">
-                {thoughts.length} {thoughts.length === 1 ? "thought" : "thoughts"} kept
-              </p>
-            </div>
-            <Button variant="ghost" className="w-full justify-start" onClick={signOut}>
-              <LogOut className="size-4" />
-              Sign out
-            </Button>
+          <div className="space-y-1 border-t border-[var(--border)] pt-3">
+            <button
+              type="button"
+              onClick={() => setIsExportImportOpen(true)}
+              className="flex h-9 w-full items-center gap-2 rounded-xl px-3 text-xs text-[var(--muted-foreground)] hover:bg-[var(--surface)] hover:text-[var(--foreground)]"
+            >
+              <Download className="size-3.5" />
+              Backup / Export
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsPasscodeSettingsOpen(true)}
+              className="flex h-9 w-full items-center gap-2 rounded-xl px-3 text-xs text-[var(--muted-foreground)] hover:bg-[var(--surface)] hover:text-[var(--foreground)]"
+            >
+              <KeyRound className="size-3.5" />
+              Passcode Lock
+            </button>
+            <button
+              type="button"
+              onClick={handleSignOut}
+              className="flex h-9 w-full items-center gap-2 rounded-xl px-3 text-xs text-[var(--muted-foreground)] hover:bg-[var(--surface)] hover:text-[var(--foreground)]"
+            >
+              <LogOut className="size-3.5" />
+              Sign out ({user.email?.slice(0, 15)}…)
+            </button>
           </div>
         </aside>
 
-        <header className="absolute inset-x-0 top-0 z-20 flex h-16 items-center justify-between border-b border-[var(--border)] bg-[var(--sidebar)] px-4 lg:hidden">
-          <div className="flex items-center gap-2.5">
-            <div className="grid size-8 place-items-center rounded-xl bg-[var(--accent)] text-[var(--accent-foreground)]">
-              <Feather className="size-4" />
-            </div>
-            <span className="text-sm font-semibold">Still</span>
-          </div>
-          <div className="flex items-center gap-1">
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => setIsCommandPaletteOpen(true)}
-              aria-label="Open quick actions"
-              className="size-9"
-            >
-              <CommandIcon className="size-4" />
-            </Button>
-            <button
-              type="button"
-              onClick={signOut}
-              className="max-w-32 truncate text-xs text-[var(--muted)]"
-            >
-              {user.email}
-            </button>
-          </div>
-        </header>
-
         <ThoughtList
-          title={details.title}
-          description={details.description}
+          title={viewDetails[view].title}
+          description={viewDetails[view].description}
           thoughts={filteredThoughts}
+          allThoughts={thoughts}
           activeId={activeId}
           search={search}
           onSearch={setSearch}
-          onSelect={selectThought}
+          onSelect={(id) => {
+            setActiveId(id);
+            setShowMobileEditor(true);
+          }}
           onNew={createThought}
+          onSelectRandom={handleSelectRandomThought}
           className={cn(
-            "pt-16 pb-16 lg:flex lg:pt-0 lg:pb-0",
-            showMobileEditor ? "hidden" : "flex",
-            isFocusMode && "lg:hidden",
+            "w-full lg:w-80 lg:flex xl:w-96",
+            showMobileEditor ? "hidden lg:flex" : "flex",
           )}
         />
 
         <div
           className={cn(
-            "min-w-0 pt-16 pb-16 lg:flex lg:pt-0 lg:pb-0",
-            showMobileEditor ? "flex" : "hidden",
+            "min-w-0 flex-1",
+            showMobileEditor ? "flex" : "hidden lg:flex",
           )}
         >
-          {isDataLoading ? (
-            <div className="grid flex-1 place-items-center bg-[var(--editor)]">
-              <LoaderCircle className="size-5 animate-spin text-[var(--muted)]" />
-            </div>
-          ) : activeThought ? (
+          {activeThought ? (
             <ThoughtEditor
+              key={activeThought.id}
               thought={activeThought}
               saveState={saveState}
               onPatch={patchActiveThought}
@@ -654,6 +803,8 @@ export function ThoughtApp() {
               onBack={() => setShowMobileEditor(false)}
               isFocusMode={isFocusMode}
               onToggleFocusMode={() => setIsFocusMode((current) => !current)}
+              onWikiLinkClick={handleWikiLinkClick}
+              onTagClick={(tag) => setSearch(tag)}
             />
           ) : (
             <EmptyEditor onNew={createThought} />
@@ -699,7 +850,7 @@ export function ThoughtApp() {
                 () =>
                   document
                     .querySelector<HTMLInputElement>(
-                      'input[placeholder="Search your words"]',
+                      'input[placeholder="Search words or #tags"]',
                     )
                     ?.focus(),
                 0,
@@ -708,6 +859,7 @@ export function ThoughtApp() {
           />
         </nav>
       </div>
+
       <CommandPalette
         commands={paletteCommands}
         isOpen={isCommandPaletteOpen}

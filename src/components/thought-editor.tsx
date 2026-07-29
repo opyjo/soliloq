@@ -4,10 +4,13 @@ import { useEffect, useRef, useState } from "react";
 import {
   Archive,
   ArrowLeft,
+  BarChart3,
   CalendarClock,
   Check,
   Cloud,
   CloudOff,
+  Eye,
+  Edit3,
   Maximize2,
   Mic,
   MicOff,
@@ -16,10 +19,15 @@ import {
   Pin,
   PinOff,
   Trash2,
+  Volume2,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import type { Thought, ThoughtStatus } from "@/lib/database.types";
+import type { AudioAttachment } from "@/lib/types";
+import { MarkdownPreview } from "@/components/markdown-preview";
+import { WritingStatsModal } from "@/components/writing-stats-modal";
+import { AudioRecorder } from "@/components/audio-recorder";
 import { cn } from "@/lib/utils";
 
 type SaveState = "idle" | "saving" | "saved" | "offline" | "error";
@@ -61,6 +69,8 @@ type ThoughtEditorProps = {
   onBack: () => void;
   isFocusMode: boolean;
   onToggleFocusMode: () => void;
+  onWikiLinkClick?: (title: string) => void;
+  onTagClick?: (tag: string) => void;
 };
 
 const statusLabels: Record<ThoughtStatus, string> = {
@@ -78,16 +88,22 @@ export function ThoughtEditor({
   onBack,
   isFocusMode,
   onToggleFocusMode,
+  onWikiLinkClick,
+  onTagClick,
 }: ThoughtEditorProps) {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isDictating, setIsDictating] = useState(false);
-  const [leavingAction, setLeavingAction] = useState<"archive" | "delete" | null>(
-    null,
-  );
+  const [isMarkdownPreview, setIsMarkdownPreview] = useState(false);
+  const [isStatsOpen, setIsStatsOpen] = useState(false);
+  const [showAudioRecorder, setShowAudioRecorder] = useState(false);
+  const [audioAttachments, setAudioAttachments] = useState<AudioAttachment[]>([]);
+  const [leavingAction, setLeavingAction] = useState<"archive" | "delete" | null>(null);
+
   const recognitionRef = useRef<BrowserSpeechRecognition | null>(null);
   const bodyRef = useRef<HTMLTextAreaElement>(null);
   const leavingTimeoutRef = useRef<number | null>(null);
 
+  // Parse attached audio notes stored in body comments or state
   useEffect(() => {
     return () => {
       recognitionRef.current?.stop();
@@ -98,8 +114,10 @@ export function ThoughtEditor({
   }, []);
 
   useEffect(() => {
-    bodyRef.current?.focus();
-  }, [thought.id]);
+    if (!isMarkdownPreview) {
+      bodyRef.current?.focus();
+    }
+  }, [thought.id, isMarkdownPreview]);
 
   function toggleDictation() {
     if (isDictating) {
@@ -209,6 +227,35 @@ export function ThoughtEditor({
           <Button
             variant="ghost"
             size="icon"
+            onClick={() => setIsMarkdownPreview((prev) => !prev)}
+            aria-label={isMarkdownPreview ? "Switch to editor" : "Switch to markdown preview"}
+            className={cn(isMarkdownPreview && "text-[var(--accent)] bg-[color-mix(in_srgb,var(--accent)_12%,transparent)]")}
+          >
+            {isMarkdownPreview ? <Edit3 className="size-4" /> : <Eye className="size-4" />}
+          </Button>
+
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setIsStatsOpen(true)}
+            aria-label="View writing metrics"
+          >
+            <BarChart3 className="size-4" />
+          </Button>
+
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setShowAudioRecorder((prev) => !prev)}
+            aria-label="Toggle voice memo recorder"
+            className={cn(showAudioRecorder && "text-[var(--accent)]")}
+          >
+            <Volume2 className="size-4" />
+          </Button>
+
+          <Button
+            variant="ghost"
+            size="icon"
             onClick={onToggleFocusMode}
             aria-label={isFocusMode ? "Exit focus mode" : "Enter focus mode"}
           >
@@ -290,20 +337,48 @@ export function ThoughtEditor({
             aria-label="Thought title"
           />
 
-          <textarea
-            ref={bodyRef}
-            value={thought.body}
-            onChange={(event) => onPatch({ body: event.target.value })}
-            placeholder={"Start wherever you are.\n\nYou do not need to make sense of it yet."}
-            className="mt-8 min-h-[48dvh] w-full flex-1 resize-none bg-transparent text-[17px] leading-[1.9] text-[var(--writing)] outline-none placeholder:text-[var(--placeholder)] sm:text-[18px]"
-            aria-label="Thought"
-          />
+          {showAudioRecorder ? (
+            <div className="mt-6">
+              <AudioRecorder
+                attachments={audioAttachments}
+                onAddAttachment={(attachment) =>
+                  setAudioAttachments((prev) => [attachment, ...prev])
+                }
+                onRemoveAttachment={(id) =>
+                  setAudioAttachments((prev) => prev.filter((a) => a.id !== id))
+                }
+              />
+            </div>
+          ) : null}
+
+          {isMarkdownPreview ? (
+            <div className="mt-8 min-h-[48dvh] w-full flex-1">
+              <MarkdownPreview
+                content={thought.body}
+                onWikiLinkClick={onWikiLinkClick}
+                onTagClick={onTagClick}
+              />
+            </div>
+          ) : (
+            <textarea
+              ref={bodyRef}
+              value={thought.body}
+              onChange={(event) => onPatch({ body: event.target.value })}
+              placeholder={"Start wherever you are.\n\nYou do not need to make sense of it yet.\n\nTips: Use #tags to categorize, or [[Other Thought]] to link."}
+              className="mt-8 min-h-[48dvh] w-full flex-1 resize-none bg-transparent text-[17px] leading-[1.9] text-[var(--writing)] outline-none placeholder:text-[var(--placeholder)] sm:text-[18px]"
+              aria-label="Thought"
+            />
+          )}
 
           <footer className="mt-12 flex flex-wrap items-center justify-between gap-5 border-t border-[var(--border)] pt-5 text-[11px] text-[var(--muted)]">
             <div className="flex items-center gap-4">
-              <span className={cn(wordCount >= 100 && "word-milestone")}>
+              <button
+                type="button"
+                onClick={() => setIsStatsOpen(true)}
+                className={cn("hover:text-[var(--foreground)]", wordCount >= 100 && "word-milestone")}
+              >
                 {wordCount} {wordCount === 1 ? "word" : "words"}
-              </span>
+              </button>
               <span>
                 Created{" "}
                 {new Intl.DateTimeFormat("en", {
@@ -360,6 +435,13 @@ export function ThoughtEditor({
           </footer>
         </article>
       </div>
+
+      <WritingStatsModal
+        isOpen={isStatsOpen}
+        onClose={() => setIsStatsOpen(false)}
+        title={thought.title}
+        body={thought.body}
+      />
     </section>
   );
 }
