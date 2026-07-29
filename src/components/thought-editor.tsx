@@ -5,6 +5,7 @@ import {
   Archive,
   ArrowLeft,
   BarChart3,
+  Brain,
   CalendarClock,
   Check,
   Cloud,
@@ -18,6 +19,7 @@ import {
   MoreHorizontal,
   Pin,
   PinOff,
+  Timer,
   Trash2,
   Volume2,
 } from "lucide-react";
@@ -28,6 +30,9 @@ import type { AudioAttachment } from "@/lib/types";
 import { MarkdownPreview } from "@/components/markdown-preview";
 import { WritingStatsModal } from "@/components/writing-stats-modal";
 import { AudioRecorder } from "@/components/audio-recorder";
+import { DeepPromptsModal } from "@/components/deep-prompts";
+import { AmbientAudioPlayer } from "@/components/ambient-audio";
+import { SprintTimerModal } from "@/components/sprint-timer";
 import { cn } from "@/lib/utils";
 
 type SaveState = "idle" | "saving" | "saved" | "offline" | "error";
@@ -95,6 +100,8 @@ export function ThoughtEditor({
   const [isDictating, setIsDictating] = useState(false);
   const [isMarkdownPreview, setIsMarkdownPreview] = useState(false);
   const [isStatsOpen, setIsStatsOpen] = useState(false);
+  const [isPromptsOpen, setIsPromptsOpen] = useState(false);
+  const [isSprintOpen, setIsSprintOpen] = useState(false);
   const [showAudioRecorder, setShowAudioRecorder] = useState(false);
   const [audioAttachments, setAudioAttachments] = useState<AudioAttachment[]>([]);
   const [leavingAction, setLeavingAction] = useState<"archive" | "delete" | null>(null);
@@ -103,7 +110,6 @@ export function ThoughtEditor({
   const bodyRef = useRef<HTMLTextAreaElement>(null);
   const leavingTimeoutRef = useRef<number | null>(null);
 
-  // Parse attached audio notes stored in body comments or state
   useEffect(() => {
     return () => {
       recognitionRef.current?.stop();
@@ -180,6 +186,10 @@ export function ThoughtEditor({
     onPatch({ review_at: date.toISOString() });
   }
 
+  function handleInsertPrompt(template: string) {
+    onPatch({ body: `${thought.body}${template}` });
+  }
+
   const wordCount = thought.body.trim()
     ? thought.body.trim().split(/\s+/).length
     : 0;
@@ -219,10 +229,34 @@ export function ThoughtEditor({
               </option>
             ))}
           </select>
+
+          <div className="hidden sm:block">
+            <AmbientAudioPlayer />
+          </div>
         </div>
 
         <div className="flex items-center gap-1">
           <SaveIndicator state={saveState} />
+
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setIsPromptsOpen(true)}
+            aria-label="Socratic Prompts"
+            title="Socratic & Mental Model Prompts"
+          >
+            <Brain className="size-4 text-[var(--accent)]" />
+          </Button>
+
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setIsSprintOpen(true)}
+            aria-label="Focus Sprint Timer"
+            title="Monk Mode Sprint Timer"
+          >
+            <Timer className="size-4" />
+          </Button>
 
           <Button
             variant="ghost"
@@ -441,6 +475,18 @@ export function ThoughtEditor({
         onClose={() => setIsStatsOpen(false)}
         title={thought.title}
         body={thought.body}
+      />
+
+      <DeepPromptsModal
+        isOpen={isPromptsOpen}
+        onClose={() => setIsPromptsOpen(false)}
+        onInsertPrompt={handleInsertPrompt}
+      />
+
+      <SprintTimerModal
+        isOpen={isSprintOpen}
+        onClose={() => setIsSprintOpen(false)}
+        currentWordCount={wordCount}
       />
     </section>
   );

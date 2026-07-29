@@ -5,6 +5,7 @@ import {
   BookOpenText,
   Clock3,
   Command as CommandIcon,
+  Compass,
   Dices,
   Download,
   Feather,
@@ -37,13 +38,14 @@ import { ThoughtEditor } from "@/components/thought-editor";
 import { ThoughtList } from "@/components/thought-list";
 import { PasscodeLock, PasscodeSettingsModal } from "@/components/passcode-lock";
 import { ExportImportDialog } from "@/components/export-import-dialog";
+import { DiscoverFeed } from "@/components/discover-feed";
 import { Button } from "@/components/ui/button";
 import type { Thought } from "@/lib/database.types";
 import type { AppTheme } from "@/lib/types";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { cn, deriveThoughtTitle } from "@/lib/utils";
 
-type View = "all" | "inbox" | "developing" | "pinned" | "review" | "archived";
+type View = "all" | "inbox" | "developing" | "pinned" | "review" | "archived" | "discover";
 type SaveState = "idle" | "saving" | "saved" | "offline" | "error";
 
 const viewDetails: Record<View, { title: string; description: string }> = {
@@ -53,6 +55,7 @@ const viewDetails: Record<View, { title: string; description: string }> = {
   pinned: { title: "Pinned", description: "Kept close at hand" },
   review: { title: "For today", description: "Ready to be seen again" },
   archived: { title: "Archive", description: "Quietly kept, out of the way" },
+  discover: { title: "Discover Radar", description: "Cool things people are building" },
 };
 
 const navigation = [
@@ -61,6 +64,7 @@ const navigation = [
   { view: "developing" as const, label: "Developing", icon: Sparkles },
   { view: "pinned" as const, label: "Pinned", icon: Pin },
   { view: "review" as const, label: "For today", icon: Clock3 },
+  { view: "discover" as const, label: "Discover", icon: Compass },
   { view: "archived" as const, label: "Archive", icon: Archive },
 ];
 
@@ -357,6 +361,8 @@ export function ThoughtApp() {
             );
           case "archived":
             return thought.status === "archived";
+          case "discover":
+            return false;
         }
       })();
 
@@ -418,9 +424,36 @@ export function ThoughtApp() {
 
     setThoughts((current) => [newThought, ...current]);
     setActiveId(newThought.id);
+    setView("all");
     setShowMobileEditor(true);
     setSaveState("idle");
   }, [user]);
+
+  const handleCaptureProject = useCallback(
+    (itemTitle: string, itemUrl: string, itemDescription: string) => {
+      if (!user) return;
+
+      const bodyText = `# ${itemTitle}\nSource: [${itemUrl}](${itemUrl})\n\n> ${itemDescription}\n\n## Reflections & Notes:\n- `;
+
+      const newThought: Thought = {
+        id: crypto.randomUUID(),
+        user_id: user.id,
+        title: itemTitle,
+        body: bodyText,
+        status: "inbox",
+        is_pinned: false,
+        review_at: null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+
+      setThoughts((current) => [newThought, ...current]);
+      setActiveId(newThought.id);
+      setView("all");
+      setShowMobileEditor(true);
+    },
+    [user],
+  );
 
   function deleteActiveThought() {
     if (!activeId || !user) return;
@@ -461,7 +494,6 @@ export function ThoughtApp() {
       setActiveId(match.id);
       setShowMobileEditor(true);
     } else {
-      // Create new thought with this title
       if (!user) return;
       const newThought: Thought = {
         id: crypto.randomUUID(),
@@ -499,7 +531,6 @@ export function ThoughtApp() {
 
     setThoughts((prev) => [...formatted, ...prev]);
 
-    // Upsert into Supabase
     for (const t of formatted) {
       const { search_document, ...insertable } = t;
       void search_document;
@@ -524,6 +555,13 @@ export function ThoughtApp() {
         shortcut: "N",
         icon: Plus,
         action: createThought,
+      },
+      {
+        id: "view-discover",
+        label: "Discover & Build Radar",
+        description: "Browse cool things people are building across the web",
+        icon: Compass,
+        action: () => changeView("discover"),
       },
       {
         id: "random-thought",
@@ -627,15 +665,6 @@ export function ThoughtApp() {
         isLocked={isLocked}
         hashedPin={hashedPin}
         onUnlock={() => setIsLocked(false)}
-        onSetPin={(hashed) => {
-          setHashedPin(hashed);
-          window.localStorage.setItem(lockStorageKey(user.id), hashed);
-        }}
-        onRemovePin={() => {
-          setHashedPin(null);
-          setIsLocked(false);
-          window.localStorage.removeItem(lockStorageKey(user.id));
-        }}
       />
 
       <PasscodeSettingsModal
@@ -696,7 +725,7 @@ export function ThoughtApp() {
               {navigation.map((item) => {
                 const Icon = item.icon;
                 const isActive = view === item.view;
-                const count = thoughts.filter((t) => {
+                const count = item.view === "discover" ? 0 : thoughts.filter((t) => {
                   if (item.view === "all") return t.status !== "archived";
                   if (item.view === "inbox") return t.status === "inbox";
                   if (item.view === "developing") return t.status === "developing";
@@ -767,49 +796,55 @@ export function ThoughtApp() {
           </div>
         </aside>
 
-        <ThoughtList
-          title={viewDetails[view].title}
-          description={viewDetails[view].description}
-          thoughts={filteredThoughts}
-          allThoughts={thoughts}
-          activeId={activeId}
-          search={search}
-          onSearch={setSearch}
-          onSelect={(id) => {
-            setActiveId(id);
-            setShowMobileEditor(true);
-          }}
-          onNew={createThought}
-          onSelectRandom={handleSelectRandomThought}
-          className={cn(
-            "w-full lg:w-80 lg:flex xl:w-96",
-            showMobileEditor ? "hidden lg:flex" : "flex",
-          )}
-        />
-
-        <div
-          className={cn(
-            "min-w-0 flex-1",
-            showMobileEditor ? "flex" : "hidden lg:flex",
-          )}
-        >
-          {activeThought ? (
-            <ThoughtEditor
-              key={activeThought.id}
-              thought={activeThought}
-              saveState={saveState}
-              onPatch={patchActiveThought}
-              onDelete={deleteActiveThought}
-              onBack={() => setShowMobileEditor(false)}
-              isFocusMode={isFocusMode}
-              onToggleFocusMode={() => setIsFocusMode((current) => !current)}
-              onWikiLinkClick={handleWikiLinkClick}
-              onTagClick={(tag) => setSearch(tag)}
+        {view === "discover" ? (
+          <DiscoverFeed onCaptureItem={handleCaptureProject} />
+        ) : (
+          <>
+            <ThoughtList
+              title={viewDetails[view].title}
+              description={viewDetails[view].description}
+              thoughts={filteredThoughts}
+              allThoughts={thoughts}
+              activeId={activeId}
+              search={search}
+              onSearch={setSearch}
+              onSelect={(id) => {
+                setActiveId(id);
+                setShowMobileEditor(true);
+              }}
+              onNew={createThought}
+              onSelectRandom={handleSelectRandomThought}
+              className={cn(
+                "w-full lg:w-80 lg:flex xl:w-96",
+                showMobileEditor ? "hidden lg:flex" : "flex",
+              )}
             />
-          ) : (
-            <EmptyEditor onNew={createThought} />
-          )}
-        </div>
+
+            <div
+              className={cn(
+                "min-w-0 flex-1",
+                showMobileEditor ? "flex" : "hidden lg:flex",
+              )}
+            >
+              {activeThought ? (
+                <ThoughtEditor
+                  key={activeThought.id}
+                  thought={activeThought}
+                  saveState={saveState}
+                  onPatch={patchActiveThought}
+                  onDelete={deleteActiveThought}
+                  onBack={() => setShowMobileEditor(false)}
+                  isFocusMode={isFocusMode}
+                  onToggleFocusMode={() => setIsFocusMode((current) => !current)}
+                  onWikiLinkClick={handleWikiLinkClick}
+                  onTagClick={(tag) => setSearch(tag)}
+                />
+              ) : (
+                <EmptyEditor onNew={createThought} />
+              )}
+            </div>
+          </>
+        )}
 
         <nav className="fixed inset-x-0 bottom-0 z-40 grid h-16 grid-cols-5 border-t border-[var(--border)] bg-[color-mix(in_srgb,var(--sidebar)_94%,transparent)] px-2 backdrop-blur-xl lg:hidden">
           <MobileNavButton
@@ -819,10 +854,10 @@ export function ThoughtApp() {
             onClick={() => changeView("all")}
           />
           <MobileNavButton
-            active={view === "inbox" && !showMobileEditor}
-            icon={Inbox}
-            label="Inbox"
-            onClick={() => changeView("inbox")}
+            active={view === "discover" && !showMobileEditor}
+            icon={Compass}
+            label="Discover"
+            onClick={() => changeView("discover")}
           />
           <button
             type="button"

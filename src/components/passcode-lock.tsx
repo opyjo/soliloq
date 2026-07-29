@@ -8,8 +8,6 @@ type PasscodeLockProps = {
   isLocked: boolean;
   hashedPin: string | null;
   onUnlock: () => void;
-  onSetPin: (pin: string) => void;
-  onRemovePin: () => void;
 };
 
 export function PasscodeLock({
