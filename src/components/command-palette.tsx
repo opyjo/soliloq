@@ -2,9 +2,10 @@
 
 import type { LucideIcon } from "lucide-react";
 import { Search, Sparkles, X } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { useDialogAccessibility } from "@/lib/use-dialog-accessibility";
 
 export type PaletteCommand = {
   id: string;
@@ -29,28 +30,16 @@ export function CommandPalette({
   onClose,
 }: CommandPaletteProps) {
   const [query, setQuery] = useState("");
-  const inputRef = useRef<HTMLInputElement>(null);
 
   function closePalette() {
     setQuery("");
     onClose();
   }
 
-  useEffect(() => {
-    if (!isOpen) return;
-
-    inputRef.current?.focus();
-
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        setQuery("");
-        onClose();
-      }
-    }
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isOpen, onClose]);
+  const dialogRef = useDialogAccessibility<HTMLElement>(
+    isOpen,
+    closePalette,
+  );
 
   const visibleCommands = (() => {
     const needle = query.trim().toLocaleLowerCase();
@@ -73,15 +62,16 @@ export function CommandPalette({
       }}
     >
       <section
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-label="Quick actions"
+        tabIndex={-1}
         className="command-panel w-full max-w-xl overflow-hidden rounded-3xl border border-[var(--border-strong)] bg-[color-mix(in_srgb,var(--popover)_94%,transparent)] shadow-[0_32px_100px_rgba(0,0,0,0.55)]"
       >
         <header className="flex items-center gap-3 border-b border-[var(--border)] px-4">
           <Search className="size-4 shrink-0 text-[var(--accent)]" />
           <input
-            ref={inputRef}
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder="Search actions, views, and thoughts…"

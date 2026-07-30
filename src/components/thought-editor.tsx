@@ -35,6 +35,16 @@ import { DeepPromptsModal } from "@/components/deep-prompts";
 import { AmbientAudioPlayer } from "@/components/ambient-audio";
 import { SprintTimerModal } from "@/components/sprint-timer";
 import { AICompanion } from "@/components/ai-companion";
+import {
+  loadAudioAttachments,
+  removeAudioAttachment,
+  saveAudioAttachment,
+} from "@/lib/audio-attachments";
+import {
+  loadCloudAudioAttachments,
+  removeCloudAudioAttachment,
+  syncAudioAttachment,
+} from "@/lib/cloud-audio";
 import { cn } from "@/lib/utils";
 
 type SaveState = "idle" | "saving" | "saved" | "offline" | "error";
@@ -108,11 +118,14 @@ export function ThoughtEditor({
   const [isAIOpen, setIsAIOpen] = useState(false);
   const [showAudioRecorder, setShowAudioRecorder] = useState(false);
   const [audioAttachments, setAudioAttachments] = useState<AudioAttachment[]>([]);
+  const [audioError, setAudioError] = useState<string | null>(null);
   const [leavingAction, setLeavingAction] = useState<"archive" | "delete" | null>(null);
 
   const recognitionRef = useRef<BrowserSpeechRecognition | null>(null);
   const bodyRef = useRef<HTMLTextAreaElement>(null);
   const leavingTimeoutRef = useRef<number | null>(null);
+  const audioAttachmentsRef = useRef<AudioAttachment[]>([]);
+  const isAudioMountedRef = useRef(true);
 
   useEffect(() => {
     return () => {
@@ -122,6 +135,55 @@ export function ThoughtEditor({
       }
     };
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    isAudioMountedRef.current = true;
+
+    void Promise.allSettled([
+      loadAudioAttachments(thought.user_id, thought.id),
+      loadCloudAudioAttachments(thought.user_id, thought.id),
+    ]).then((results) => {
+      const local =
+        results[0].status === "fulfilled" ? results[0].value : [];
+      const cloud =
+        results[1].status === "fulfilled" ? results[1].value : [];
+      const merged = new Map<string, AudioAttachment>();
+      local.forEach((attachment) => merged.set(attachment.id, attachment));
+      cloud.forEach((attachment) => {
+        const localAttachment = merged.get(attachment.id);
+        if (localAttachment) URL.revokeObjectURL(localAttachment.url);
+        merged.set(attachment.id, attachment);
+      });
+      const attachments = Array.from(merged.values()).toSorted((a, b) =>
+        b.createdAt.localeCompare(a.createdAt),
+      );
+      if (cancelled) {
+        attachments.forEach((attachment) =>
+          URL.revokeObjectURL(attachment.url),
+        );
+        return;
+      }
+      audioAttachmentsRef.current = attachments;
+      setAudioAttachments(attachments);
+      if (results.every((result) => result.status === "rejected")) {
+        setAudioError("Voice memos could not be loaded.");
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      isAudioMountedRef.current = false;
+      audioAttachmentsRef.current.forEach((attachment) =>
+        URL.revokeObjectURL(attachment.url),
+      );
+      audioAttachmentsRef.current = [];
+    };
+  }, [thought.id, thought.user_id]);
+
+  useEffect(() => {
+    audioAttachmentsRef.current = audioAttachments;
+  }, [audioAttachments]);
 
   useEffect(() => {
     if (!isMarkdownPreview) {
@@ -196,6 +258,69 @@ export function ThoughtEditor({
 
   function handleAppendAIText(content: string) {
     onPatch({ body: `${thought.body}${content}` });
+  }
+
+  async function handleAddAudioAttachment(attachment: AudioAttachment) {
+    setAudioError(null);
+    try {
+      await saveAudioAttachment(thought.user_id, thought.id, attachment);
+      if (!isAudioMountedRef.current) {
+        URL.revokeObjectURL(attachment.url);
+        return;
+      }
+      setAudioAttachments((current) => [attachment, ...current]);
+      try {
+        const synced = await syncAudioAttachment(
+          thought.user_id,
+          thought.id,
+          attachment,
+        );
+        if (isAudioMountedRef.current) {
+          setAudioAttachments((current) =>
+            current.map((item) =>
+              item.id === attachment.id ? synced : item,
+            ),
+          );
+        }
+      } catch {
+        if (isAudioMountedRef.current) {
+          setAudioError(
+            "Voice memo saved on this device; cloud sync is unavailable.",
+          );
+        }
+      }
+    } catch {
+      URL.revokeObjectURL(attachment.url);
+      setAudioError("This voice memo could not be saved.");
+    }
+  }
+
+  async function handleRemoveAudioAttachment(id: string) {
+    const attachment = audioAttachments.find((item) => item.id === id);
+    setAudioError(null);
+    try {
+      await removeAudioAttachment(thought.user_id, thought.id, id);
+      if (attachment?.synced || navigator.onLine) {
+        try {
+          await removeCloudAudioAttachment(
+            thought.user_id,
+            thought.id,
+            id,
+            attachment?.storagePath,
+          );
+        } catch {
+          setAudioError(
+            "Removed locally, but cloud cleanup will need another try.",
+          );
+        }
+      }
+      setAudioAttachments((current) =>
+        current.filter((item) => item.id !== id),
+      );
+      if (attachment) URL.revokeObjectURL(attachment.url);
+    } catch {
+      setAudioError("This voice memo could not be deleted.");
+    }
   }
 
   const wordCount = thought.body.trim()
@@ -435,12 +560,20 @@ export function ThoughtEditor({
               <AudioRecorder
                 attachments={audioAttachments}
                 onAddAttachment={(attachment) =>
-                  setAudioAttachments((prev) => [attachment, ...prev])
+                  void handleAddAudioAttachment(attachment)
                 }
                 onRemoveAttachment={(id) =>
-                  setAudioAttachments((prev) => prev.filter((a) => a.id !== id))
+                  void handleRemoveAudioAttachment(id)
                 }
               />
+              {audioError ? (
+                <p
+                  role="alert"
+                  className="mt-2 text-xs text-[var(--danger)]"
+                >
+                  {audioError}
+                </p>
+              ) : null}
             </div>
           ) : null}
 

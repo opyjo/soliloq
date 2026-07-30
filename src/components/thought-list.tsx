@@ -87,10 +87,14 @@ export function ThoughtList({
           <input
             value={search}
             onChange={(event) => onSearch(event.target.value)}
-            placeholder="Search words or #tags"
+            placeholder="Search words, meaning, or #tags"
             className="h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--input)] pl-9 pr-3 text-sm outline-none transition placeholder:text-[var(--muted)] focus:border-[var(--border-strong)]"
           />
         </label>
+        <p className="mt-2 flex items-center gap-1.5 text-[9px] text-[var(--muted)]">
+          <span className="size-1.5 rounded-full bg-[var(--accent)]" />
+          Semantic search understands related concepts
+        </p>
 
         {availableTags.length > 0 ? (
           <div className="mt-3 flex flex-wrap items-center gap-1.5 overflow-x-auto pb-1 text-xs">

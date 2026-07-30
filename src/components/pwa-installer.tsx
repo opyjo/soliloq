@@ -29,13 +29,43 @@ export function PWAInstaller() {
   });
 
   useEffect(() => {
+    if (process.env.NODE_ENV !== "production") {
+      if ("serviceWorker" in navigator) {
+        void navigator.serviceWorker.getRegistrations().then((registrations) =>
+          Promise.all(
+            registrations
+              .filter((registration) =>
+                registration.active?.scriptURL.endsWith("/sw.js"),
+              )
+              .map((registration) => registration.unregister()),
+          ),
+        );
+      }
+      if ("caches" in window) {
+        void caches.keys().then((keys) =>
+          Promise.all(
+            keys
+              .filter((key) => key.startsWith("still-app-"))
+              .map((key) => caches.delete(key)),
+          ),
+        );
+      }
+      return;
+    }
+
     // Register Service Worker
-    if ("serviceWorker" in navigator) {
-      window.addEventListener("load", () => {
-        navigator.serviceWorker.register("/sw.js").catch((err) => {
-          console.warn("ServiceWorker registration failed:", err);
-        });
+    const registerServiceWorker = () => {
+      void navigator.serviceWorker.register("/sw.js").catch((err) => {
+        console.warn("ServiceWorker registration failed:", err);
       });
+    };
+
+    if ("serviceWorker" in navigator) {
+      if (document.readyState === "complete") {
+        registerServiceWorker();
+      } else {
+        window.addEventListener("load", registerServiceWorker);
+      }
     }
 
     // Capture Android/Chrome Install Prompt
@@ -47,6 +77,7 @@ export function PWAInstaller() {
     window.addEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
 
     return () => {
+      window.removeEventListener("load", registerServiceWorker);
       window.removeEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
     };
   }, []);

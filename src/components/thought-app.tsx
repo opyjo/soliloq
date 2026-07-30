@@ -14,6 +14,7 @@ import {
   LoaderCircle,
   Lock,
   LogOut,
+  Network,
   Palette,
   Pin,
   Plus,
@@ -21,6 +22,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import type { User } from "@supabase/supabase-js";
+import dynamic from "next/dynamic";
 import {
   useCallback,
   useEffect,
@@ -42,10 +44,26 @@ import { DiscoverFeed } from "@/components/discover-feed";
 import { Button } from "@/components/ui/button";
 import type { Thought } from "@/lib/database.types";
 import type { AppTheme } from "@/lib/types";
+import { removeThoughtAudioAttachments } from "@/lib/audio-attachments";
+import { removeCloudThoughtAudioAttachments } from "@/lib/cloud-audio";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import {
+  removeThoughtHistory,
+  recordThoughtVersion,
+  type ThoughtVersion,
+} from "@/lib/thought-history";
+import { rankThoughts } from "@/lib/thought-intelligence";
 import { cn, deriveThoughtTitle } from "@/lib/utils";
 
-type View = "all" | "inbox" | "developing" | "pinned" | "review" | "archived" | "discover";
+type View =
+  | "all"
+  | "inbox"
+  | "developing"
+  | "pinned"
+  | "review"
+  | "archived"
+  | "discover"
+  | "studio";
 type SaveState = "idle" | "saving" | "saved" | "offline" | "error";
 
 const viewDetails: Record<View, { title: string; description: string }> = {
@@ -56,6 +74,7 @@ const viewDetails: Record<View, { title: string; description: string }> = {
   review: { title: "For today", description: "Ready to be seen again" },
   archived: { title: "Archive", description: "Quietly kept, out of the way" },
   discover: { title: "Discover Radar", description: "Cool things people are building" },
+  studio: { title: "Thinking Studio", description: "Patterns, connections, and reflection" },
 };
 
 const navigation = [
@@ -64,9 +83,38 @@ const navigation = [
   { view: "developing" as const, label: "Developing", icon: Sparkles },
   { view: "pinned" as const, label: "Pinned", icon: Pin },
   { view: "review" as const, label: "For today", icon: Clock3 },
+  { view: "studio" as const, label: "Studio", icon: Network },
   { view: "discover" as const, label: "Discover", icon: Compass },
   { view: "archived" as const, label: "Archive", icon: Archive },
 ];
+
+const thoughtStatuses = new Set<Thought["status"]>([
+  "inbox",
+  "developing",
+  "finished",
+  "archived",
+]);
+const appThemes = new Set<AppTheme>([
+  "default",
+  "sepia",
+  "oled",
+  "cream",
+  "nord",
+]);
+
+const ThinkingStudio = dynamic(
+  () =>
+    import("@/components/thinking-studio").then(
+      (module) => module.ThinkingStudio,
+    ),
+  {
+    loading: () => (
+      <div className="grid min-w-0 flex-1 place-items-center bg-[var(--editor)]">
+        <LoaderCircle className="size-5 animate-spin text-[var(--accent)]" />
+      </div>
+    ),
+  },
+);
 
 function pendingStorageKey(userId: string) {
   return `still:pending:${userId}`;
@@ -86,8 +134,52 @@ function isThought(value: unknown): value is Thought {
   return (
     typeof candidate.id === "string" &&
     typeof candidate.user_id === "string" &&
-    typeof candidate.body === "string"
+    (typeof candidate.title === "string" || candidate.title === null) &&
+    typeof candidate.body === "string" &&
+    typeof candidate.status === "string" &&
+    thoughtStatuses.has(candidate.status as Thought["status"]) &&
+    typeof candidate.is_pinned === "boolean" &&
+    (typeof candidate.review_at === "string" || candidate.review_at === null) &&
+    typeof candidate.created_at === "string" &&
+    typeof candidate.updated_at === "string"
   );
+}
+
+function isEditableTarget(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) return false;
+  return (
+    target.isContentEditable ||
+    target instanceof HTMLInputElement ||
+    target instanceof HTMLTextAreaElement ||
+    target instanceof HTMLSelectElement
+  );
+}
+
+function isValidDateString(value: unknown): value is string {
+  return typeof value === "string" && !Number.isNaN(Date.parse(value));
+}
+
+function isValidUuid(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      value,
+    )
+  );
+}
+
+function thoughtForPersistence(thought: Thought) {
+  return {
+    id: thought.id,
+    user_id: thought.user_id,
+    title: thought.title,
+    body: thought.body,
+    status: thought.status,
+    is_pinned: thought.is_pinned,
+    review_at: thought.review_at,
+    created_at: thought.created_at,
+    updated_at: thought.updated_at,
+  };
 }
 
 export function ThoughtApp() {
@@ -101,10 +193,11 @@ export function ThoughtApp() {
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const [isFocusMode, setIsFocusMode] = useState(false);
   const [saveState, setSaveState] = useState<SaveState>("idle");
-  const [pendingThought, setPendingThought] = useState<Thought | null>(null);
-  const [reviewClock] = useState(() => Date.now());
-  const pendingRef = useRef<Thought | null>(null);
+  const [pendingThoughts, setPendingThoughts] = useState<Thought[]>([]);
+  const [reviewClock, setReviewClock] = useState(() => Date.now());
+  const pendingRef = useRef(new Map<string, Thought>());
   const persistedIdsRef = useRef(new Set<string>());
+  const saveInFlightRef = useRef<Promise<void>>(Promise.resolve());
 
   // Features State
   const [hashedPin, setHashedPin] = useState<string | null>(null);
@@ -113,20 +206,26 @@ export function ThoughtApp() {
   const [isExportImportOpen, setIsExportImportOpen] = useState(false);
 
   const loadThoughts = useCallback(async (currentUser: User) => {
+    pendingRef.current.clear();
+    setPendingThoughts([]);
+    setSaveState("idle");
+
     // Load local lock & theme configuration
     const savedPin = window.localStorage.getItem(lockStorageKey(currentUser.id));
-    if (savedPin) {
-      setHashedPin(savedPin);
-      setIsLocked(true);
-    }
+    setHashedPin(savedPin);
+    setIsLocked(Boolean(savedPin));
 
-    const savedTheme = window.localStorage.getItem(themeStorageKey(currentUser.id)) as AppTheme;
-    if (savedTheme) {
-      if (savedTheme === "default") {
-        document.documentElement.removeAttribute("data-theme");
-      } else {
-        document.documentElement.setAttribute("data-theme", savedTheme);
-      }
+    const rawTheme = window.localStorage.getItem(
+      themeStorageKey(currentUser.id),
+    );
+    const savedTheme =
+      rawTheme && appThemes.has(rawTheme as AppTheme)
+        ? (rawTheme as AppTheme)
+        : "default";
+    if (savedTheme === "default") {
+      document.documentElement.removeAttribute("data-theme");
+    } else {
+      document.documentElement.setAttribute("data-theme", savedTheme);
     }
 
     const supabase = getSupabaseBrowserClient();
@@ -145,7 +244,7 @@ export function ThoughtApp() {
     const remoteThoughts = data ?? [];
     persistedIdsRef.current = new Set(remoteThoughts.map((thought) => thought.id));
 
-    let recoveredThought: Thought | null = null;
+    let recoveredThoughts: Thought[] = [];
     const rawPending = window.localStorage.getItem(
       pendingStorageKey(currentUser.id),
     );
@@ -153,27 +252,32 @@ export function ThoughtApp() {
     if (rawPending) {
       try {
         const parsed: unknown = JSON.parse(rawPending);
-        if (isThought(parsed) && parsed.user_id === currentUser.id) {
-          recoveredThought = parsed;
-        }
+        const candidates = Array.isArray(parsed) ? parsed : [parsed];
+        recoveredThoughts = candidates.filter(
+          (candidate): candidate is Thought =>
+            isThought(candidate) && candidate.user_id === currentUser.id,
+        );
       } catch {
         window.localStorage.removeItem(pendingStorageKey(currentUser.id));
       }
     }
 
-    const mergedThoughts = recoveredThought
-      ? [
-          recoveredThought,
-          ...remoteThoughts.filter((thought) => thought.id !== recoveredThought?.id),
-        ]
-      : remoteThoughts;
+    const recoveredIds = new Set(
+      recoveredThoughts.map((thought) => thought.id),
+    );
+    const mergedThoughts = [
+      ...recoveredThoughts,
+      ...remoteThoughts.filter((thought) => !recoveredIds.has(thought.id)),
+    ];
 
     setThoughts(mergedThoughts);
     setActiveId(mergedThoughts[0]?.id ?? null);
 
-    if (recoveredThought) {
-      pendingRef.current = recoveredThought;
-      setPendingThought(recoveredThought);
+    if (recoveredThoughts.length > 0) {
+      pendingRef.current = new Map(
+        recoveredThoughts.map((thought) => [thought.id, thought]),
+      );
+      setPendingThoughts(recoveredThoughts);
       setSaveState(navigator.onLine ? "saving" : "offline");
     }
   }, []);
@@ -185,6 +289,7 @@ export function ThoughtApp() {
       setUser(data.user ?? null);
       setIsAuthLoading(false);
       if (data.user) void loadThoughts(data.user);
+      else document.documentElement.removeAttribute("data-theme");
     });
 
     const {
@@ -196,6 +301,16 @@ export function ThoughtApp() {
 
       if (event === "SIGNED_IN" && currentUser) {
         void loadThoughts(currentUser);
+      } else if (event === "SIGNED_OUT") {
+        pendingRef.current.clear();
+        persistedIdsRef.current.clear();
+        setPendingThoughts([]);
+        setThoughts([]);
+        setActiveId(null);
+        setHashedPin(null);
+        setIsLocked(false);
+        setIsFocusMode(false);
+        document.documentElement.removeAttribute("data-theme");
       }
     });
 
@@ -203,79 +318,111 @@ export function ThoughtApp() {
   }, [loadThoughts]);
 
   useEffect(() => {
-    if (!pendingThought || !user) return;
+    if (pendingThoughts.length === 0 || !user) return;
 
-    const isPersisted = persistedIdsRef.current.has(pendingThought.id);
-    if (
-      !isPersisted &&
-      !pendingThought.title?.trim() &&
-      !pendingThought.body.trim()
-    ) {
-      return;
-    }
+    const snapshots = pendingThoughts.filter(
+      (thought) =>
+        persistedIdsRef.current.has(thought.id) ||
+        Boolean(thought.title?.trim()) ||
+        Boolean(thought.body.trim()),
+    );
+    if (snapshots.length === 0) return;
 
-    const snapshot = pendingThought;
-    const timeout = window.setTimeout(async () => {
-      if (!navigator.onLine) {
-        setSaveState("offline");
-        return;
-      }
+    const timeout = window.setTimeout(() => {
+      const operation = (async () => {
+        if (!navigator.onLine) {
+          setSaveState("offline");
+          return;
+        }
 
-      setSaveState("saving");
-      const supabase = getSupabaseBrowserClient();
-      const { data, error } = await supabase
-        .from("thoughts")
-        .upsert(
-          {
-            id: snapshot.id,
-            user_id: snapshot.user_id,
-            title: snapshot.title,
-            body: snapshot.body,
-            status: snapshot.status,
-            is_pinned: snapshot.is_pinned,
-            review_at: snapshot.review_at,
-            created_at: snapshot.created_at,
-            updated_at: snapshot.updated_at,
-          },
-          { onConflict: "id" },
-        )
-        .select(
-          "id,user_id,title,body,status,is_pinned,review_at,created_at,updated_at",
-        )
-        .single();
+        setSaveState("saving");
+        const supabase = getSupabaseBrowserClient();
+        const { data, error } = await supabase
+          .from("thoughts")
+          .upsert(snapshots.map(thoughtForPersistence), { onConflict: "id" })
+          .select(
+            "id,user_id,title,body,status,is_pinned,review_at,created_at,updated_at",
+          );
 
-      if (error) {
+        if (error) {
+          setSaveState(navigator.onLine ? "error" : "offline");
+          return;
+        }
+
+        const savedById = new Map(
+          (data ?? []).map((thought) => [thought.id, thought]),
+        );
+        const snapshotById = new Map(
+          snapshots.map((thought) => [thought.id, thought]),
+        );
+        data?.forEach((thought) => persistedIdsRef.current.add(thought.id));
+
+        setThoughts((current) =>
+          current.map((thought) => {
+            const saved = savedById.get(thought.id);
+            const snapshot = snapshotById.get(thought.id);
+            return saved && snapshot?.updated_at === thought.updated_at
+              ? saved
+              : thought;
+          }),
+        );
+
+        snapshots.forEach((snapshot) => {
+          if (
+            pendingRef.current.get(snapshot.id)?.updated_at ===
+            snapshot.updated_at
+          ) {
+            pendingRef.current.delete(snapshot.id);
+          }
+        });
+
+        const remaining = Array.from(pendingRef.current.values());
+        setPendingThoughts(remaining);
+        setSaveState(remaining.length > 0 ? "saving" : "saved");
+
+        if (remaining.length === 0) {
+          window.localStorage.removeItem(pendingStorageKey(user.id));
+        } else {
+          window.localStorage.setItem(
+            pendingStorageKey(user.id),
+            JSON.stringify(remaining),
+          );
+        }
+      })();
+
+      const guardedOperation = operation.catch((error) => {
+        console.error("Thought autosave failed:", error);
         setSaveState(navigator.onLine ? "error" : "offline");
-        return;
-      }
-
-      persistedIdsRef.current.add(data.id);
-      setThoughts((current) =>
-        current.map((thought) => (thought.id === data.id ? data : thought)),
-      );
-      setSaveState("saved");
-
-      if (pendingRef.current?.updated_at === snapshot.updated_at) {
-        pendingRef.current = null;
-        setPendingThought(null);
-        window.localStorage.removeItem(pendingStorageKey(user.id));
-      }
+      });
+      saveInFlightRef.current = guardedOperation;
+      void guardedOperation.finally(() => {
+        if (saveInFlightRef.current === guardedOperation) {
+          saveInFlightRef.current = Promise.resolve();
+        }
+      });
     }, 700);
 
     return () => window.clearTimeout(timeout);
-  }, [pendingThought, user]);
+  }, [pendingThoughts, user]);
 
   useEffect(() => {
     function retryPending() {
-      if (!pendingRef.current) return;
-      setPendingThought({
-        ...pendingRef.current,
-        updated_at: new Date().toISOString(),
-      });
+      if (pendingRef.current.size === 0) return;
+      setPendingThoughts(Array.from(pendingRef.current.values()));
     }
 
     window.addEventListener("online", retryPending);
     return () => window.removeEventListener("online", retryPending);
+  }, []);
+
+  useEffect(() => {
+    const updateClock = () => setReviewClock(Date.now());
+    const interval = window.setInterval(updateClock, 60_000);
+    document.addEventListener("visibilitychange", updateClock);
+    return () => {
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", updateClock);
+    };
   }, []);
 
   const closeCommandPalette = useCallback(
@@ -305,43 +452,29 @@ export function ThoughtApp() {
     [user],
   );
 
-  useEffect(() => {
-    function handleKeyboardShortcuts(event: KeyboardEvent) {
-      const isCmdOrCtrl = event.metaKey || event.ctrlKey;
-
-      if (isCmdOrCtrl && event.key.toLowerCase() === "k") {
-        event.preventDefault();
-        setIsCommandPaletteOpen((open) => !open);
-      }
-
-      if (isCmdOrCtrl && event.key.toLowerCase() === "l") {
-        event.preventDefault();
-        if (hashedPin) {
-          setIsLocked(true);
-        } else {
-          setIsPasscodeSettingsOpen(true);
-        }
-      }
-
-      if (isCmdOrCtrl && event.key.toLowerCase() === "r" && !event.shiftKey) {
-        event.preventDefault();
-        handleSelectRandomThought();
-      }
-    }
-
-    window.addEventListener("keydown", handleKeyboardShortcuts);
-    return () => window.removeEventListener("keydown", handleKeyboardShortcuts);
-  }, [hashedPin, handleSelectRandomThought]);
-
   const activeThought = useMemo(
     () => thoughts.find((thought) => thought.id === activeId) ?? null,
     [activeId, thoughts],
   );
 
-  const filteredThoughts = useMemo(() => {
-    const needle = search.trim().toLowerCase();
+  const queueThoughtForSave = useCallback(
+    (thought: Thought) => {
+      if (!user || thought.user_id !== user.id) return;
 
-    return thoughts.filter((thought) => {
+      pendingRef.current.set(thought.id, thought);
+      const pending = Array.from(pendingRef.current.values());
+      setPendingThoughts(pending);
+      window.localStorage.setItem(
+        pendingStorageKey(user.id),
+        JSON.stringify(pending),
+      );
+      setSaveState(navigator.onLine ? "saving" : "offline");
+    },
+    [user],
+  );
+
+  const filteredThoughts = useMemo(() => {
+    const matchingView = thoughts.filter((thought) => {
       const matchesView = (() => {
         switch (view) {
           case "all":
@@ -362,49 +495,41 @@ export function ThoughtApp() {
           case "archived":
             return thought.status === "archived";
           case "discover":
+          case "studio":
             return false;
         }
       })();
-
-      if (!matchesView) return false;
-      if (!needle) return true;
-
-      const title = (thought.title ?? "").toLowerCase();
-      const body = thought.body.toLowerCase();
-      return title.includes(needle) || body.includes(needle);
+      return matchesView;
     });
+    return rankThoughts(matchingView, search);
   }, [reviewClock, search, thoughts, view]);
 
   const patchActiveThought = useCallback(
     (patch: Partial<Thought>) => {
-      if (!activeId || !user) return;
+      if (!activeId || !user || !activeThought) return;
+      if (
+        ("title" in patch && patch.title !== activeThought.title) ||
+        ("body" in patch && patch.body !== activeThought.body)
+      ) {
+        recordThoughtVersion(user.id, activeThought);
+      }
 
-      const updatedTime = new Date().toISOString();
-      let updatedThought: Thought | null = null;
+      const updatedThought: Thought = {
+        ...activeThought,
+        ...patch,
+        id: activeThought.id,
+        user_id: user.id,
+        updated_at: new Date().toISOString(),
+      };
 
       setThoughts((current) =>
-        current.map((thought) => {
-          if (thought.id !== activeId) return thought;
-          updatedThought = {
-            ...thought,
-            ...patch,
-            updated_at: updatedTime,
-          };
-          return updatedThought;
-        }),
+        current.map((thought) =>
+          thought.id === activeId ? updatedThought : thought,
+        ),
       );
-
-      if (updatedThought) {
-        pendingRef.current = updatedThought;
-        setPendingThought(updatedThought);
-        window.localStorage.setItem(
-          pendingStorageKey(user.id),
-          JSON.stringify(updatedThought),
-        );
-        setSaveState(navigator.onLine ? "saving" : "offline");
-      }
+      queueThoughtForSave(updatedThought);
     },
-    [activeId, user],
+    [activeId, activeThought, queueThoughtForSave, user],
   );
 
   const createThought = useCallback(() => {
@@ -428,6 +553,98 @@ export function ThoughtApp() {
     setShowMobileEditor(true);
     setSaveState("idle");
   }, [user]);
+
+  const createThoughtWithContent = useCallback(
+    (title: string | null, body: string) => {
+      if (!user) return;
+      const now = new Date().toISOString();
+      const newThought: Thought = {
+        id: crypto.randomUUID(),
+        user_id: user.id,
+        title,
+        body,
+        status: "inbox",
+        is_pinned: false,
+        review_at: null,
+        created_at: now,
+        updated_at: now,
+      };
+      setThoughts((current) => [newThought, ...current]);
+      setActiveId(newThought.id);
+      setView("all");
+      setShowMobileEditor(true);
+      queueThoughtForSave(newThought);
+    },
+    [queueThoughtForSave, user],
+  );
+
+  useEffect(() => {
+    if (!user || isAuthLoading) return;
+    const url = new URL(window.location.href);
+    let action: "capture" | "studio" | null = null;
+    if (url.searchParams.get("capture") === "1") {
+      action = "capture";
+    } else if (url.searchParams.get("studio") === "1") {
+      action = "studio";
+    } else {
+      return;
+    }
+    url.searchParams.delete("capture");
+    url.searchParams.delete("studio");
+    window.history.replaceState({}, "", `${url.pathname}${url.search}`);
+    const timeout = window.setTimeout(() => {
+      if (action === "capture") {
+        createThought();
+      } else {
+        setView("studio");
+        setShowMobileEditor(false);
+      }
+    }, 0);
+    return () => window.clearTimeout(timeout);
+  }, [createThought, isAuthLoading, user]);
+
+  useEffect(() => {
+    function handleKeyboardShortcuts(event: KeyboardEvent) {
+      const isCmdOrCtrl = event.metaKey || event.ctrlKey;
+
+      if (isCmdOrCtrl && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setIsCommandPaletteOpen((open) => !open);
+      }
+
+      if (isCmdOrCtrl && event.key.toLowerCase() === "l") {
+        event.preventDefault();
+        if (hashedPin) {
+          setIsLocked(true);
+        } else {
+          setIsPasscodeSettingsOpen(true);
+        }
+      }
+
+      if (
+        !isCmdOrCtrl &&
+        !event.altKey &&
+        !isEditableTarget(event.target) &&
+        event.key.toLowerCase() === "n"
+      ) {
+        event.preventDefault();
+        createThought();
+      }
+
+      if (
+        !isCmdOrCtrl &&
+        !event.altKey &&
+        !isEditableTarget(event.target) &&
+        event.key.toLowerCase() === "r"
+      ) {
+        event.preventDefault();
+        handleSelectRandomThought();
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyboardShortcuts);
+    return () => window.removeEventListener("keydown", handleKeyboardShortcuts);
+  }, [createThought, hashedPin, handleSelectRandomThought]);
 
   const handleCaptureProject = useCallback(
     (itemTitle: string, itemUrl: string, itemDescription: string) => {
@@ -455,15 +672,21 @@ export function ThoughtApp() {
       setActiveId(newThought.id);
       setView("all");
       setShowMobileEditor(true);
+      queueThoughtForSave(newThought);
     },
-    [user],
+    [queueThoughtForSave, user],
   );
 
-  function deleteActiveThought() {
+  async function deleteActiveThought() {
     if (!activeId || !user) return;
 
     const targetId = activeId;
+    const target = thoughts.find((thought) => thought.id === targetId);
+    if (!target) return;
+
+    const targetIndex = thoughts.findIndex((thought) => thought.id === targetId);
     const isPersisted = persistedIdsRef.current.has(targetId);
+    const pendingBeforeDelete = pendingRef.current.get(targetId) ?? null;
 
     setThoughts((current) => {
       const remaining = current.filter((thought) => thought.id !== targetId);
@@ -472,16 +695,55 @@ export function ThoughtApp() {
       return remaining;
     });
 
-    if (pendingRef.current?.id === targetId) {
-      pendingRef.current = null;
-      setPendingThought(null);
+    pendingRef.current.delete(targetId);
+    const remainingPending = Array.from(pendingRef.current.values());
+    setPendingThoughts(remainingPending);
+    if (remainingPending.length === 0) {
       window.localStorage.removeItem(pendingStorageKey(user.id));
+    } else {
+      window.localStorage.setItem(
+        pendingStorageKey(user.id),
+        JSON.stringify(remainingPending),
+      );
     }
 
     if (isPersisted) {
+      await saveInFlightRef.current;
+      try {
+        await removeCloudThoughtAudioAttachments(user.id, targetId);
+      } catch (error) {
+        console.warn("Could not remove synced voice memos:", error);
+      }
       const supabase = getSupabaseBrowserClient();
-      void supabase.from("thoughts").delete().eq("id", targetId);
+      const { data: deleted, error } = await supabase
+        .from("thoughts")
+        .delete()
+        .eq("id", targetId)
+        .select("id")
+        .single();
+      if (error || deleted?.id !== targetId) {
+        setThoughts((current) => {
+          if (current.some((thought) => thought.id === targetId)) return current;
+          const restored = [...current];
+          restored.splice(Math.max(0, targetIndex), 0, target);
+          return restored;
+        });
+        setActiveId(targetId);
+        setShowMobileEditor(true);
+        setSaveState(navigator.onLine ? "error" : "offline");
+        if (pendingBeforeDelete) queueThoughtForSave(pendingBeforeDelete);
+        window.alert("This thought could not be deleted. It has been restored.");
+        return;
+      }
+      persistedIdsRef.current.delete(targetId);
     }
+
+    try {
+      await removeThoughtAudioAttachments(user.id, targetId);
+    } catch (error) {
+      console.warn("Could not remove local voice memos:", error);
+    }
+    removeThoughtHistory(user.id, targetId);
   }
 
   function changeView(nextView: View) {
@@ -513,42 +775,171 @@ export function ThoughtApp() {
       setThoughts((current) => [newThought, ...current]);
       setActiveId(newThought.id);
       setShowMobileEditor(true);
+      queueThoughtForSave(newThought);
     }
   }
 
-  async function handleImportThoughts(imported: Partial<Thought>[]) {
-    if (!user) return;
+  async function handleImportThoughts(imported: unknown) {
+    if (!user) throw new Error("You must be signed in to import thoughts.");
+    if (!Array.isArray(imported) || imported.length === 0) {
+      throw new Error("The backup must contain at least one thought.");
+    }
+    if (imported.length > 1_000) {
+      throw new Error("Import up to 1,000 thoughts at a time.");
+    }
+
     const now = new Date().toISOString();
     const supabase = getSupabaseBrowserClient();
+    const formattedById = new Map<string, Thought>();
 
-    const formatted: Thought[] = imported.map((item) => ({
-      id: item.id || crypto.randomUUID(),
-      user_id: user.id,
-      title: item.title || null,
-      body: item.body || "",
-      status: (item.status as Thought["status"]) || "inbox",
-      is_pinned: Boolean(item.is_pinned),
-      review_at: item.review_at || null,
-      created_at: item.created_at || now,
-      updated_at: item.updated_at || now,
-    }));
+    imported.forEach((value, index) => {
+      if (!value || typeof value !== "object" || Array.isArray(value)) {
+        throw new Error(`Thought ${index + 1} is not a valid object.`);
+      }
+      const item = value as Record<string, unknown>;
+      if (!("title" in item) && !("body" in item)) {
+        throw new Error(`Thought ${index + 1} has no title or body.`);
+      }
+      if (
+        ("title" in item &&
+          item.title !== null &&
+          typeof item.title !== "string") ||
+        ("body" in item && typeof item.body !== "string") ||
+        ("status" in item &&
+          (typeof item.status !== "string" ||
+            !thoughtStatuses.has(item.status as Thought["status"]))) ||
+        ("is_pinned" in item && typeof item.is_pinned !== "boolean") ||
+        ("review_at" in item &&
+          item.review_at !== null &&
+          !isValidDateString(item.review_at)) ||
+        ("created_at" in item && !isValidDateString(item.created_at)) ||
+        ("updated_at" in item && !isValidDateString(item.updated_at)) ||
+        ("id" in item && !isValidUuid(item.id))
+      ) {
+        throw new Error(`Thought ${index + 1} contains invalid fields.`);
+      }
 
-    setThoughts((prev) => [...formatted, ...prev]);
+      const id = isValidUuid(item.id) ? item.id : crypto.randomUUID();
+      formattedById.set(id, {
+        id,
+        user_id: user.id,
+        title:
+          typeof item.title === "string"
+            ? item.title.slice(0, 500)
+            : null,
+        body: typeof item.body === "string" ? item.body : "",
+        status: thoughtStatuses.has(item.status as Thought["status"])
+          ? (item.status as Thought["status"])
+          : "inbox",
+        is_pinned: item.is_pinned === true,
+        review_at: isValidDateString(item.review_at) ? item.review_at : null,
+        created_at: isValidDateString(item.created_at) ? item.created_at : now,
+        updated_at: isValidDateString(item.updated_at) ? item.updated_at : now,
+      });
+    });
 
-    for (const t of formatted) {
-      const { search_document, ...insertable } = t;
-      void search_document;
-      await supabase.from("thoughts").upsert(insertable);
+    const formatted = Array.from(formattedById.values());
+    const { data, error } = await supabase
+      .from("thoughts")
+      .upsert(formatted.map(thoughtForPersistence), { onConflict: "id" })
+      .select(
+        "id,user_id,title,body,status,is_pinned,review_at,created_at,updated_at",
+      );
+
+    if (error || !data) {
+      throw new Error(error?.message ?? "The imported thoughts could not be saved.");
     }
+
+    data.forEach((thought) => persistedIdsRef.current.add(thought.id));
+    const importedIds = new Set(data.map((thought) => thought.id));
+    setThoughts((current) => [
+      ...data,
+      ...current.filter((thought) => !importedIds.has(thought.id)),
+    ]);
+    setActiveId(data[0]?.id ?? activeId);
+    setSaveState("saved");
+    return { imported: data.length };
   }
 
-  async function handleSignOut() {
+  function restoreThoughtVersion(version: ThoughtVersion) {
+    if (!user || !activeThought || version.thoughtId !== activeThought.id) {
+      return;
+    }
+    recordThoughtVersion(user.id, activeThought);
+    patchActiveThought({ title: version.title, body: version.body });
+    setView("all");
+    setShowMobileEditor(true);
+  }
+
+  async function mergeThoughts(primaryId: string, duplicateId: string) {
+    if (!user || primaryId === duplicateId) return;
+    const primary = thoughts.find((thought) => thought.id === primaryId);
+    const duplicate = thoughts.find((thought) => thought.id === duplicateId);
+    if (!primary || !duplicate) return;
+    if (
+      !window.confirm(
+        `Merge “${duplicate.title ?? deriveThoughtTitle(duplicate.body)}” into “${primary.title ?? deriveThoughtTitle(primary.body)}”? The second thought will be removed.`,
+      )
+    ) {
+      return;
+    }
+
+    recordThoughtVersion(user.id, primary);
+    const merged: Thought = {
+      ...primary,
+      body: `${primary.body.trimEnd()}\n\n---\n\n## Merged from ${duplicate.title ?? deriveThoughtTitle(duplicate.body)}\n\n${duplicate.body}`.trim(),
+      updated_at: new Date().toISOString(),
+    };
+    setThoughts((current) =>
+      current
+        .filter((thought) => thought.id !== duplicateId)
+        .map((thought) => (thought.id === primaryId ? merged : thought)),
+    );
+    setActiveId(primaryId);
+    queueThoughtForSave(merged);
+
+    pendingRef.current.delete(duplicateId);
+    if (persistedIdsRef.current.has(duplicateId)) {
+      try {
+        await removeCloudThoughtAudioAttachments(user.id, duplicateId);
+      } catch (error) {
+        console.warn("Could not remove merged voice memos:", error);
+      }
+      const supabase = getSupabaseBrowserClient();
+      const { error } = await supabase
+        .from("thoughts")
+        .delete()
+        .eq("id", duplicateId)
+        .eq("user_id", user.id);
+      if (error) {
+        setThoughts((current) => [duplicate, ...current]);
+        setSaveState("error");
+        window.alert("The thoughts were combined, but the duplicate could not be removed.");
+        return;
+      }
+      persistedIdsRef.current.delete(duplicateId);
+    }
+    removeThoughtHistory(user.id, duplicateId);
+    void removeThoughtAudioAttachments(user.id, duplicateId);
+  }
+
+  const handleSignOut = useCallback(async () => {
     const supabase = getSupabaseBrowserClient();
-    await supabase.auth.signOut();
+    const { error } = await supabase.auth.signOut();
+    if (error) {
+      setSaveState("error");
+      window.alert("Still could not sign you out. Please try again.");
+      return;
+    }
     setUser(null);
     setThoughts([]);
     setActiveId(null);
-  }
+    setHashedPin(null);
+    setIsLocked(false);
+    setIsFocusMode(false);
+    setPendingThoughts([]);
+    document.documentElement.removeAttribute("data-theme");
+  }, []);
 
   const paletteCommands: PaletteCommand[] = useMemo(() => {
     const actions: PaletteCommand[] = [
@@ -571,7 +962,7 @@ export function ThoughtApp() {
         id: "random-thought",
         label: "Resurface random thought",
         description: "Serendipity Engine: Surprise yourself with a past thought",
-        shortcut: "⌘R",
+        shortcut: "R",
         icon: Dices,
         action: handleSelectRandomThought,
       },
@@ -649,7 +1040,13 @@ export function ThoughtApp() {
     });
 
     return actions;
-  }, [changeTheme, createThought, handleSelectRandomThought, hashedPin]);
+  }, [
+    changeTheme,
+    createThought,
+    handleSelectRandomThought,
+    handleSignOut,
+    hashedPin,
+  ]);
 
   if (isAuthLoading) {
     return (
@@ -697,7 +1094,12 @@ export function ThoughtApp() {
       <div className="still-ambient still-ambient-two" aria-hidden="true" />
 
       <div className="relative z-10 flex h-full min-w-0">
-        <aside className="hidden w-64 flex-col justify-between border-r border-[var(--border)] bg-[var(--sidebar)] p-4 lg:flex xl:w-72">
+        <aside
+          className={cn(
+            "hidden w-64 flex-col justify-between border-r border-[var(--border)] bg-[var(--sidebar)] p-4 lg:flex xl:w-72",
+            isFocusMode && "!hidden",
+          )}
+        >
           <div>
             <div className="flex items-center justify-between px-3 py-2">
               <div className="flex items-center gap-2.5">
@@ -729,7 +1131,10 @@ export function ThoughtApp() {
               {navigation.map((item) => {
                 const Icon = item.icon;
                 const isActive = view === item.view;
-                const count = item.view === "discover" ? 0 : thoughts.filter((t) => {
+                const count =
+                  item.view === "discover" || item.view === "studio"
+                    ? 0
+                    : thoughts.filter((t) => {
                   if (item.view === "all") return t.status !== "archived";
                   if (item.view === "inbox") return t.status === "inbox";
                   if (item.view === "developing") return t.status === "developing";
@@ -742,8 +1147,8 @@ export function ThoughtApp() {
                       t.status !== "finished"
                     );
                   if (item.view === "archived") return t.status === "archived";
-                  return false;
-                }).length;
+                        return false;
+                      }).length;
 
                 return (
                   <button
@@ -821,6 +1226,23 @@ export function ThoughtApp() {
 
         {view === "discover" ? (
           <DiscoverFeed onCaptureItem={handleCaptureProject} />
+        ) : view === "studio" ? (
+          <ThinkingStudio
+            userId={user.id}
+            thoughts={thoughts}
+            activeThought={activeThought}
+            onSelect={(id) => {
+              setActiveId(id);
+              setView("all");
+              setShowMobileEditor(true);
+            }}
+            onCreate={createThoughtWithContent}
+            onPatchActive={patchActiveThought}
+            onMerge={(primaryId, duplicateId) =>
+              void mergeThoughts(primaryId, duplicateId)
+            }
+            onRestore={restoreThoughtVersion}
+          />
         ) : (
           <>
             <ThoughtList
@@ -840,6 +1262,7 @@ export function ThoughtApp() {
               className={cn(
                 "w-full lg:w-80 lg:flex xl:w-96",
                 showMobileEditor ? "hidden lg:flex" : "flex",
+                isFocusMode && "!hidden",
               )}
             />
 
@@ -869,7 +1292,12 @@ export function ThoughtApp() {
           </>
         )}
 
-        <nav className="fixed inset-x-0 bottom-0 z-40 grid h-16 grid-cols-5 border-t border-[var(--border)] bg-[color-mix(in_srgb,var(--sidebar)_94%,transparent)] px-2 backdrop-blur-xl lg:hidden">
+        <nav
+          className={cn(
+            "fixed inset-x-0 bottom-0 z-40 grid h-16 grid-cols-5 border-t border-[var(--border)] bg-[color-mix(in_srgb,var(--sidebar)_94%,transparent)] px-2 backdrop-blur-xl lg:hidden",
+            isFocusMode && "hidden",
+          )}
+        >
           <MobileNavButton
             active={view === "all" && !showMobileEditor}
             icon={BookOpenText}
@@ -877,10 +1305,10 @@ export function ThoughtApp() {
             onClick={() => changeView("all")}
           />
           <MobileNavButton
-            active={view === "discover" && !showMobileEditor}
-            icon={Compass}
-            label="Discover"
-            onClick={() => changeView("discover")}
+            active={view === "studio" && !showMobileEditor}
+            icon={Network}
+            label="Studio"
+            onClick={() => changeView("studio")}
           />
           <button
             type="button"
@@ -908,7 +1336,7 @@ export function ThoughtApp() {
                 () =>
                   document
                     .querySelector<HTMLInputElement>(
-                      'input[placeholder="Search words or #tags"]',
+                      'input[placeholder="Search words, meaning, or #tags"]',
                     )
                     ?.focus(),
                 0,

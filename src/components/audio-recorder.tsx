@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Mic, Square, Trash2, Play, Pause, Volume2 } from "lucide-react";
+import { Cloud, Mic, Square, Trash2, Play, Pause, Volume2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { AudioAttachment } from "@/lib/types";
 
@@ -21,13 +21,22 @@ export function AudioRecorder({
   const [playingId, setPlayingId] = useState<string | null>(null);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<number | null>(null);
+  const durationRef = useRef(0);
   const audioPlayersRef = useRef<Map<string, HTMLAudioElement>>(new Map());
 
   useEffect(() => {
+    const audioPlayers = audioPlayersRef.current;
     return () => {
-      if (timerRef.current) window.clearInterval(timerRef.current);
+      if (timerRef.current !== null) window.clearInterval(timerRef.current);
+      if (mediaRecorderRef.current?.state === "recording") {
+        mediaRecorderRef.current.onstop = null;
+        mediaRecorderRef.current.stop();
+      }
+      mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
+      audioPlayers.forEach((audio) => audio.pause());
     };
   }, []);
 
@@ -36,7 +45,9 @@ export function AudioRecorder({
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mediaRecorder = new MediaRecorder(stream);
       mediaRecorderRef.current = mediaRecorder;
+      mediaStreamRef.current = stream;
       chunksRef.current = [];
+      durationRef.current = 0;
 
       mediaRecorder.ondataavailable = (event) => {
         if (event.data.size > 0) {
@@ -45,20 +56,21 @@ export function AudioRecorder({
       };
 
       mediaRecorder.onstop = () => {
-        const audioBlob = new Blob(chunksRef.current, { type: "audio/webm" });
-        const reader = new FileReader();
-        reader.readAsDataURL(audioBlob);
-        reader.onloadend = () => {
-          const base64Url = reader.result as string;
-          const newAttachment: AudioAttachment = {
-            id: `audio-${Date.now()}`,
-            url: base64Url,
-            durationSeconds: recordingSeconds,
+        const audioBlob = new Blob(chunksRef.current, {
+          type: mediaRecorder.mimeType || "audio/webm",
+        });
+        if (audioBlob.size > 0) {
+          onAddAttachment({
+            id: crypto.randomUUID(),
+            url: URL.createObjectURL(audioBlob),
+            blob: audioBlob,
+            durationSeconds: Math.max(1, durationRef.current),
             createdAt: new Date().toISOString(),
-          };
-          onAddAttachment(newAttachment);
-        };
+          });
+        }
         stream.getTracks().forEach((track) => track.stop());
+        mediaStreamRef.current = null;
+        mediaRecorderRef.current = null;
       };
 
       mediaRecorder.start();
@@ -66,7 +78,11 @@ export function AudioRecorder({
       setRecordingSeconds(0);
 
       timerRef.current = window.setInterval(() => {
-        setRecordingSeconds((prev) => prev + 1);
+        setRecordingSeconds((prev) => {
+          const next = prev + 1;
+          durationRef.current = next;
+          return next;
+        });
       }, 1000);
     } catch (err) {
       console.error("Microphone access failed", err);
@@ -78,7 +94,10 @@ export function AudioRecorder({
     if (mediaRecorderRef.current && isRecording) {
       mediaRecorderRef.current.stop();
       setIsRecording(false);
-      if (timerRef.current) window.clearInterval(timerRef.current);
+      if (timerRef.current !== null) {
+        window.clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
     }
   }
 
@@ -100,8 +119,10 @@ export function AudioRecorder({
       audioPlayersRef.current.set(attachment.id, audio);
     }
 
-    audio.play();
-    setPlayingId(attachment.id);
+    void audio.play().then(
+      () => setPlayingId(attachment.id),
+      () => setPlayingId(null),
+    );
   }
 
   function formatTime(seconds: number) {
@@ -154,6 +175,11 @@ export function AudioRecorder({
                   variant="ghost"
                   className="size-7"
                   onClick={() => togglePlay(item)}
+                  aria-label={
+                    playingId === item.id
+                      ? "Pause voice memo"
+                      : "Play voice memo"
+                  }
                 >
                   {playingId === item.id ? (
                     <Pause className="size-3.5 text-[var(--accent)]" />
@@ -170,6 +196,15 @@ export function AudioRecorder({
                     minute: "2-digit",
                   })}
                 </span>
+                {item.synced ? (
+                  <span
+                    className="inline-flex items-center gap-1 text-[9px] text-[var(--accent)]"
+                    title="Available across your signed-in devices"
+                  >
+                    <Cloud className="size-3" />
+                    Synced
+                  </span>
+                ) : null}
               </div>
 
               <Button
@@ -177,6 +212,7 @@ export function AudioRecorder({
                 variant="ghost"
                 className="size-7 text-[var(--danger)] hover:bg-[color-mix(in_srgb,var(--danger)_10%,transparent)]"
                 onClick={() => onRemoveAttachment(item.id)}
+                aria-label="Delete voice memo"
               >
                 <Trash2 className="size-3.5" />
               </Button>

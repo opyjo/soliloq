@@ -131,6 +131,17 @@ export function MarkdownPreview({
     );
   });
 
+  if (inCodeBlock) {
+    elements.push(
+      <pre
+        key="code-unclosed"
+        className="my-4 overflow-x-auto rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4 text-xs font-mono leading-relaxed text-[var(--foreground)]"
+      >
+        <code>{codeBlockBuffer.join("\n")}</code>
+      </pre>,
+    );
+  }
+
   return (
     <div className={cn("markdown-preview text-[13px] sm:text-[14px]", className)}>
       {elements}
@@ -144,8 +155,9 @@ function parseInlineText(
   onWikiLinkClick?: (title: string) => void,
   onTagClick?: (tag: string) => void
 ): React.ReactNode {
-  // Regex to match [[WikiLinks]], #tags, **bold**, *italic*, `code`
-  const regex = /(\[\[(.*?)\]\])|(#[\w\-]+)|(\*\*(.*?)\*\*)|(\*(.*?)\*)|(`(.*?)`)/g;
+  // Regex to match [[WikiLinks]], Markdown links, #tags, **bold**, *italic*, `code`
+  const regex =
+    /(\[\[(.*?)\]\])|(\[([^\]]+)\]\((https?:\/\/[^\s)]+)\))|(#[\w-]+)|(\*\*(.*?)\*\*)|(\*(.*?)\*)|(`(.*?)`)/g;
 
   const parts: React.ReactNode[] = [];
   let lastIndex = 0;
@@ -171,9 +183,23 @@ function parseInlineText(
         </button>
       );
     }
-    // 2. #tag
+    // 2. [label](https://example.com)
     else if (match[3]) {
-      const tagName = match[3];
+      parts.push(
+        <a
+          key={`${keyPrefix}-link-${match.index}`}
+          href={match[5]}
+          target="_blank"
+          rel="noreferrer"
+          className="text-[var(--accent)] underline decoration-[color-mix(in_srgb,var(--accent)_45%,transparent)] underline-offset-2 hover:decoration-[var(--accent)]"
+        >
+          {match[4]}
+        </a>,
+      );
+    }
+    // 3. #tag
+    else if (match[6]) {
+      const tagName = match[6];
       parts.push(
         <button
           key={`${keyPrefix}-tag-${match.index}`}
@@ -185,30 +211,30 @@ function parseInlineText(
         </button>
       );
     }
-    // 3. **bold**
-    else if (match[4]) {
+    // 4. **bold**
+    else if (match[7]) {
       parts.push(
         <strong key={`${keyPrefix}-bold-${match.index}`} className="font-semibold text-[var(--foreground)]">
-          {match[5]}
+          {match[8]}
         </strong>
       );
     }
-    // 4. *italic*
-    else if (match[6]) {
+    // 5. *italic*
+    else if (match[9]) {
       parts.push(
         <em key={`${keyPrefix}-italic-${match.index}`} className="italic">
-          {match[7]}
+          {match[10]}
         </em>
       );
     }
-    // 5. `code`
-    else if (match[8]) {
+    // 6. `code`
+    else if (match[11]) {
       parts.push(
         <code
           key={`${keyPrefix}-code-${match.index}`}
           className="rounded bg-[var(--surface-hover)] px-1.5 py-0.5 text-xs font-mono text-[var(--foreground)]"
         >
-          {match[9]}
+          {match[12]}
         </code>
       );
     }

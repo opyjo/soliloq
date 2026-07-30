@@ -13,6 +13,7 @@ import {
 
 import { Button } from "@/components/ui/button";
 import type { CompanionMode, ChatMessage } from "@/app/api/ai-companion/route";
+import { useDialogAccessibility } from "@/lib/use-dialog-accessibility";
 
 type AICompanionProps = {
   isOpen: boolean;
@@ -33,6 +34,7 @@ export function AICompanion({
   const [inputQuery, setInputQuery] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const dialogRef = useDialogAccessibility<HTMLDivElement>(isOpen, onClose);
 
   if (!isOpen) return null;
 
@@ -91,14 +93,24 @@ export function AICompanion({
   }
 
   return (
-    <div className="fixed inset-y-0 right-0 z-50 flex w-full max-w-md flex-col border-l border-[var(--border)] bg-[var(--popover)] shadow-2xl backdrop-blur-xl">
+    <div
+      ref={dialogRef}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="ai-companion-title"
+      tabIndex={-1}
+      className="fixed inset-y-0 right-0 z-50 flex w-full max-w-md flex-col border-l border-[var(--border)] bg-[var(--popover)] shadow-2xl backdrop-blur-xl outline-none"
+    >
       <header className="flex h-16 items-center justify-between border-b border-[var(--border)] px-5">
         <div className="flex items-center gap-2.5">
           <span className="grid size-8 place-items-center rounded-xl bg-[color-mix(in_srgb,var(--accent)_14%,transparent)] text-[var(--accent)]">
             <Sparkles className="size-4" />
           </span>
           <div>
-            <h2 className="text-sm font-semibold text-[var(--foreground)]">
+            <h2
+              id="ai-companion-title"
+              className="text-sm font-semibold text-[var(--foreground)]"
+            >
               AI Socratic Companion
             </h2>
             <p className="text-[10px] text-[var(--muted-foreground)]">
@@ -106,7 +118,13 @@ export function AICompanion({
             </p>
           </div>
         </div>
-        <Button variant="ghost" size="icon" className="size-8" onClick={onClose}>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="size-8"
+          onClick={onClose}
+          aria-label="Close AI companion"
+        >
           <X className="size-4" />
         </Button>
       </header>
@@ -229,6 +247,7 @@ export function AICompanion({
             value={inputQuery}
             onChange={(e) => setInputQuery(e.target.value)}
             placeholder="Ask Moonshot AI about this thought…"
+            aria-label="Ask the AI companion"
             className="h-10 min-w-0 flex-1 rounded-xl border border-[var(--border)] bg-[var(--input)] px-3 text-xs outline-none focus:border-[var(--accent)]"
           />
           <Button

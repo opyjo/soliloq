@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Lock, Unlock, ShieldAlert, KeyRound } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useDialogAccessibility } from "@/lib/use-dialog-accessibility";
 
 type PasscodeLockProps = {
   isLocked: boolean;
@@ -17,6 +18,11 @@ export function PasscodeLock({
 }: PasscodeLockProps) {
   const [pinInput, setPinInput] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
+  const dialogRef = useDialogAccessibility<HTMLDivElement>(
+    isLocked,
+    undefined,
+    { closeOnEscape: false },
+  );
 
   async function hashPin(pin: string): Promise<string> {
     const encoder = new TextEncoder();
@@ -44,11 +50,21 @@ export function PasscodeLock({
   if (isLocked) {
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--background)] p-6">
-        <div className="w-full max-w-sm text-center">
+        <div
+          ref={dialogRef}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="passcode-lock-title"
+          tabIndex={-1}
+          className="w-full max-w-sm text-center outline-none"
+        >
           <div className="mx-auto flex size-16 items-center justify-center rounded-full bg-[color-mix(in_srgb,var(--accent)_15%,transparent)] text-[var(--accent)]">
             <Lock className="size-8" />
           </div>
-          <h2 className="mt-4 text-2xl font-bold tracking-tight text-[var(--foreground)]">
+          <h2
+            id="passcode-lock-title"
+            className="mt-4 text-2xl font-bold tracking-tight text-[var(--foreground)]"
+          >
             Still is Locked
           </h2>
           <p className="mt-1 text-xs text-[var(--muted-foreground)]">
@@ -62,6 +78,9 @@ export function PasscodeLock({
               value={pinInput}
               onChange={(e) => setPinInput(e.target.value)}
               placeholder="••••"
+              aria-label="Passcode"
+              inputMode="numeric"
+              autoComplete="current-password"
               autoFocus
               className="w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3 text-center text-2xl tracking-[0.5em] text-[var(--foreground)] outline-none focus:border-[var(--accent)]"
             />
@@ -98,6 +117,7 @@ export function PasscodeSettingsModal({
 }) {
   const [pin, setPin] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
+  const dialogRef = useDialogAccessibility<HTMLDivElement>(isOpen, onClose);
 
   if (!isOpen) return null;
 
@@ -120,9 +140,24 @@ export function PasscodeSettingsModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
-      <div className="w-full max-w-sm rounded-2xl border border-[var(--border)] bg-[var(--popover)] p-6 shadow-2xl">
-        <div className="flex items-center gap-2 font-semibold text-[var(--foreground)]">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="passcode-settings-title"
+        tabIndex={-1}
+        className="w-full max-w-sm rounded-2xl border border-[var(--border)] bg-[var(--popover)] p-6 shadow-2xl outline-none"
+      >
+        <div
+          id="passcode-settings-title"
+          className="flex items-center gap-2 font-semibold text-[var(--foreground)]"
+        >
           <KeyRound className="size-5 text-[var(--accent)]" />
           <span>Passcode Lock Settings</span>
         </div>
@@ -154,6 +189,9 @@ export function PasscodeSettingsModal({
               value={pin}
               onChange={(e) => setPin(e.target.value)}
               placeholder="Enter new 4-digit PIN"
+              aria-label="New passcode"
+              inputMode="numeric"
+              autoComplete="new-password"
               className="w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3 text-center text-xl tracking-[0.4em] outline-none"
             />
             {errorMsg ? (

@@ -3,6 +3,7 @@
 import { BarChart3, Clock, Type, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { WritingStats } from "@/lib/types";
+import { useDialogAccessibility } from "@/lib/use-dialog-accessibility";
 
 type WritingStatsModalProps = {
   isOpen: boolean;
@@ -17,6 +18,8 @@ export function WritingStatsModal({
   title,
   body,
 }: WritingStatsModalProps) {
+  const dialogRef = useDialogAccessibility<HTMLDivElement>(isOpen, onClose);
+
   if (!isOpen) return null;
 
   const text = `${title ?? ""} ${body}`.trim();
@@ -27,10 +30,15 @@ export function WritingStatsModal({
   const paragraphs = body ? body.split(/\n\s*\n/).filter(Boolean).length : 0;
   const readingTimeMinutes = Math.max(1, Math.ceil(words / 200));
 
-  // Simple Flesch Kincaid Grade estimate
+  const syllables = countSyllables(text);
   const gradeLevel =
     words > 0 && sentences > 0
-      ? (0.39 * (words / sentences) + 11.8 * 4.5 - 15.59).toFixed(1)
+      ? Math.max(
+          0,
+          0.39 * (words / sentences) +
+            11.8 * (syllables / words) -
+            15.59,
+        ).toFixed(1)
       : "0";
 
   const stats: WritingStats = {
@@ -44,14 +52,35 @@ export function WritingStatsModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
-      <div className="w-full max-w-md rounded-2xl border border-[var(--border)] bg-[var(--popover)] p-6 shadow-2xl">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="writing-stats-title"
+        tabIndex={-1}
+        className="w-full max-w-md rounded-2xl border border-[var(--border)] bg-[var(--popover)] p-6 shadow-2xl outline-none"
+      >
         <div className="flex items-center justify-between border-b border-[var(--border)] pb-4">
-          <div className="flex items-center gap-2 font-semibold text-[var(--foreground)]">
+          <div
+            id="writing-stats-title"
+            className="flex items-center gap-2 font-semibold text-[var(--foreground)]"
+          >
             <BarChart3 className="size-5 text-[var(--accent)]" />
             <span>Writing Insights</span>
           </div>
-          <Button variant="ghost" size="icon" className="size-8" onClick={onClose}>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-8"
+            onClick={onClose}
+            aria-label="Close writing insights"
+          >
             <X className="size-4" />
           </Button>
         </div>
@@ -73,12 +102,24 @@ export function WritingStatsModal({
         </div>
 
         <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3 text-xs text-[var(--muted-foreground)]">
-          <span className="font-semibold text-[var(--foreground)]">Reading Ease: </span>
-          Grade Level ~{stats.gradeLevel} (Estimated complexity based on sentence length)
+          <span className="font-semibold text-[var(--foreground)]">Grade level: </span>
+          ~{stats.gradeLevel} (Flesch–Kincaid estimate)
         </div>
       </div>
     </div>
   );
+}
+
+function countSyllables(text: string) {
+  return text
+    .toLowerCase()
+    .match(/[a-z]+/g)
+    ?.reduce((total, word) => {
+      const normalized = word
+        .replace(/(?:[^laeiouy]es|ed|[^laeiouy]e)$/, "")
+        .replace(/^y/, "");
+      return total + Math.max(1, normalized.match(/[aeiouy]{1,2}/g)?.length ?? 0);
+    }, 0) ?? 0;
 }
 
 function StatBox({

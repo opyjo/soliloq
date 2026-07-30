@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Brain, Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useDialogAccessibility } from "@/lib/use-dialog-accessibility";
 
 export type MentalModelPrompt = {
   id: string;
@@ -62,6 +63,7 @@ export function DeepPromptsModal({
   onInsertPrompt,
 }: DeepPromptsModalProps) {
   const [selectedCategory, setSelectedCategory] = useState<string>("All");
+  const dialogRef = useDialogAccessibility<HTMLDivElement>(isOpen, onClose);
 
   if (!isOpen) return null;
 
@@ -72,14 +74,35 @@ export function DeepPromptsModal({
     : PROMPT_DECK.filter((p) => p.category === selectedCategory);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
-      <div className="w-full max-w-lg rounded-2xl border border-[var(--border)] bg-[var(--popover)] p-6 shadow-2xl">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="deep-prompts-title"
+        tabIndex={-1}
+        className="w-full max-w-lg rounded-2xl border border-[var(--border)] bg-[var(--popover)] p-6 shadow-2xl outline-none"
+      >
         <div className="flex items-center justify-between border-b border-[var(--border)] pb-4">
-          <div className="flex items-center gap-2 font-semibold text-[var(--foreground)]">
+          <div
+            id="deep-prompts-title"
+            className="flex items-center gap-2 font-semibold text-[var(--foreground)]"
+          >
             <Brain className="size-5 text-[var(--accent)]" />
             <span>Deep Thinking & Socratic Prompts</span>
           </div>
-          <Button variant="ghost" size="icon" className="size-8" onClick={onClose}>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-8"
+            onClick={onClose}
+            aria-label="Close deep prompts"
+          >
             <X className="size-4" />
           </Button>
         </div>

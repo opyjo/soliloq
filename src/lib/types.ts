@@ -6,6 +6,9 @@ export type LineHeight = "normal" | "relaxed" | "loose";
 export type AudioAttachment = {
   id: string;
   url: string;
+  blob?: Blob;
+  storagePath?: string;
+  synced?: boolean;
   durationSeconds: number;
   createdAt: string;
 };

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Timer, Play, Square, Zap, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useDialogAccessibility } from "@/lib/use-dialog-accessibility";
 
 type SprintTimerProps = {
   isOpen: boolean;
@@ -20,6 +21,7 @@ export function SprintTimerModal({
   const [startingWords, setStartingWords] = useState(0);
 
   const timerRef = useRef<number | null>(null);
+  const dialogRef = useDialogAccessibility<HTMLDivElement>(isOpen, onClose);
 
   useEffect(() => {
     return () => {
@@ -61,14 +63,35 @@ export function SprintTimerModal({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
-      <div className="w-full max-w-sm rounded-2xl border border-[var(--border)] bg-[var(--popover)] p-6 shadow-2xl">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="sprint-timer-title"
+        tabIndex={-1}
+        className="w-full max-w-sm rounded-2xl border border-[var(--border)] bg-[var(--popover)] p-6 shadow-2xl outline-none"
+      >
         <div className="flex items-center justify-between border-b border-[var(--border)] pb-4">
-          <div className="flex items-center gap-2 font-semibold text-[var(--foreground)]">
+          <div
+            id="sprint-timer-title"
+            className="flex items-center gap-2 font-semibold text-[var(--foreground)]"
+          >
             <Timer className="size-5 text-[var(--accent)]" />
             <span>Monk Mode Sprint</span>
           </div>
-          <Button variant="ghost" size="icon" className="size-8" onClick={onClose}>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-8"
+            onClick={onClose}
+            aria-label="Close sprint timer"
+          >
             <X className="size-4" />
           </Button>
         </div>
